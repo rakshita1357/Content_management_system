@@ -17,6 +17,11 @@ export function createUploadService({ config, writer, sync }) {
     if (!writer) {
       throw new AppError(503, 'Uploading needs Drive write access, which is not set up yet.', 'Complete step 5 (npm run auth) and restart the backend.');
     }
+    const source = sync.getSource();
+    if (!source) throw new AppError(409, 'No Drive folder is connected yet.', 'Paste a Drive folder link on the admin page first.');
+    if (source.canWrite === false) {
+      throw new AppError(403, 'This Drive folder is view-only for the signed-in Google account, so uploads are not possible.', 'Ask the owner for edit access, or add files to the folder in Drive directly.');
+    }
     const folderName = cleanAdName(adName);
     const name = String(fileName || '').trim();
     if (!name) throw new AppError(400, 'The file has no name.');
@@ -33,7 +38,7 @@ export function createUploadService({ config, writer, sync }) {
         'TV storage is limited. Re-encode the video at 1080p, H.264, around 8 Mbps.');
     }
 
-    const folder = await writer.ensureFolder(config.rootFolderId, folderName);
+    const folder = await writer.ensureFolder(source.folderId, folderName);
     const file = await writer.uploadStream({ parentId: folder.id, name, mimeType, size, stream });
 
     // The file is safely in Drive at this point; a failed sync is reported but does not fail the upload.

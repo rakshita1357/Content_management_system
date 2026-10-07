@@ -10,6 +10,22 @@ export function sendText(res, status, contentType, body) {
   res.end(body);
 }
 
+// Reads a small JSON request body.
+export async function readJson(req, maxBytes = 16 * 1024) {
+  const chunks = [];
+  let total = 0;
+  for await (const chunk of req) {
+    total += chunk.length;
+    if (total > maxBytes) throw Object.assign(new Error('Request body is too large.'), { status: 413 });
+    chunks.push(chunk);
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+  } catch {
+    throw Object.assign(new Error('Request body must be JSON.'), { status: 400 });
+  }
+}
+
 function safeEqual(a, b) {
   const ab = Buffer.from(String(a));
   const bb = Buffer.from(String(b));

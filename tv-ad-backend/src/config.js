@@ -16,12 +16,11 @@ export const PUBLISHED_FILES = { manifest: 'ads.json', page: 'index.html' };
 const ID_PATTERN = /^[A-Za-z0-9_-]{10,}$/;
 
 export function loadConfig(env = process.env) {
-  if (!env.DRIVE_FOLDER_ID) throw new Error('Missing DRIVE_FOLDER_ID in .env. Copy .env.example to .env and fill it in.');
   const hasOAuth = Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GOOGLE_REFRESH_TOKEN);
   if (!hasOAuth && !env.DRIVE_API_KEY) {
     throw new Error('Set up Google access in .env: either the OAuth values (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN; run "npm run auth") or, for a public folder only, DRIVE_API_KEY.');
   }
-  if (!ID_PATTERN.test(env.DRIVE_FOLDER_ID)) {
+  if (env.DRIVE_FOLDER_ID && !ID_PATTERN.test(env.DRIVE_FOLDER_ID)) {
     throw new Error('DRIVE_FOLDER_ID looks wrong. Use only the ID part of the folder URL, not the whole link.');
   }
   const num = (name, fallback, min) => {
@@ -31,7 +30,8 @@ export function loadConfig(env = process.env) {
   };
   return {
     port: num('PORT', 8080, 1),
-    rootFolderId: env.DRIVE_FOLDER_ID,
+    // Optional: the folder can also be chosen in the admin page, which then takes priority.
+    rootFolderId: env.DRIVE_FOLDER_ID || '',
     apiKey: env.DRIVE_API_KEY || '',
     oauth: {
       clientId: env.GOOGLE_CLIENT_ID || '',

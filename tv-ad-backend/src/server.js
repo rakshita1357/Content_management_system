@@ -6,6 +6,7 @@ import { createDriveWriter } from './drive/writer.js';
 import { createStateStore } from './lib/stateStore.js';
 import { createSyncService } from './services/syncService.js';
 import { createUploadService } from './services/uploadService.js';
+import { createSourceService } from './services/sourceService.js';
 
 let config;
 try {
@@ -25,9 +26,10 @@ const reader = createPublicReader(config, tokens);
 const writer = tokens.isConfigured() ? createDriveWriter(config, tokens) : null;
 const sync = createSyncService({ config, reader, writer, store: createStateStore(config.dataDir), log });
 const uploads = createUploadService({ config, writer, sync });
+const sources = createSourceService({ reader, sync });
 
 await sync.init();
-const server = createApp({ config, sync, uploads, reader, log });
+const server = createApp({ config, sync, uploads, sources, reader, log });
 server.requestTimeout = 0; // large video uploads can take longer than Node's default 5 minutes
 
 server.listen(config.port, () => {

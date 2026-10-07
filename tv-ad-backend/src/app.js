@@ -4,7 +4,7 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { AppError } from './lib/errors.js';
 import { publicManifest } from './manifest/buildManifest.js';
-import { isAuthorized, sendJson, sendText } from './lib/http.js';
+import { isAuthorized, readJson, sendJson, sendText } from './lib/http.js';
 
 const ADMIN_PAGE = new URL('../public/admin.html', import.meta.url);
 
@@ -18,15 +18,24 @@ const ADMIN_PAGE = new URL('../public/admin.html', import.meta.url);
  *   GET  /admin                admin page
  *   GET  /api/status           sync and publishing status
  *   GET  /api/ads              current ads.json
+ *   GET  /api/source           the Drive folder in use
+ *   POST /api/source           {link}: validate a pasted Drive folder link and switch to it
  *   POST /api/sync             rescan Drive and publish now
  *   PUT  /api/upload?adName=&fileName=   raw file body, streamed to Drive
  *   GET  /preview/index.html   the TV page as it will be published
  *   GET  /preview/ads.json     the manifest as it will be published
  */
-export function createApp({ config, sync, uploads, reader, log = console }) {
+export function createApp({ config, sync, uploads, sources, reader, log = console }) {
   const tvPage = (req, res) => {
     const html = sync.getIndexHtml();
-    if (!html) throw new AppError(503, 'No scan has finished yet. Wait a moment and reload.');
+    if (!html) {
+      // First run, or the folder was just changed: show a waiting page that retries on its own.
+      const msg = sync.getStatus().needsSetup
+        ? 'No Drive folder is connected yet. Open the admin page on a computer and paste a folder link.'
+        : 'Loading the ads. This page retries automatically.';
+      res.writeHead(503, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Retry-After': '15' });
+      return res.end(`<!DOCTYPE html><meta charset="utf-8"><meta http-equiv="refresh" content="15"><meta name="viewport" content="width=device-width, initial-scale=1"><title>TV ads</title><body style="margin:0;background:#0f2233;color:#e8eef3;font:28px/1.4 Arial,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center"><p style="max-width:34em;padding:2em">${msg}</p>`);
+    }
     sendText(res, 200, 'text/html', html);
   };
   const tvManifest = (req, res) => {
@@ -60,6 +69,11 @@ export function createApp({ config, sync, uploads, reader, log = console }) {
     'GET /admin': async (req, res) => sendText(res, 200, 'text/html', await readFile(ADMIN_PAGE, 'utf8')),
     'GET /api/status': (req, res) => sendJson(res, 200, sync.getStatus()),
     'GET /api/ads': (req, res) => sendJson(res, 200, sync.getManifest() || { ads: [], skipped: [] }),
+    'GET /api/source': (req, res) => sendJson(res, 200, { source: sync.getSource() }),
+    'POST /api/source': async (req, res) => {
+      const body = await readJson(req);
+      sendJson(res, 200, await sources.apply(body.link));
+    },
     'POST /api/sync': async (req, res) => sendJson(res, 200, await sync.sync({ reason: 'manual', force: true })),
     'PUT /api/upload': async (req, res, url) => {
       const result = await uploads.upload({

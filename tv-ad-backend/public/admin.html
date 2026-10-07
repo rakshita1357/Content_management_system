@@ -69,7 +69,22 @@
   .empty { color: var(--muted); }
   #skipped { margin-top: 18px; padding: 12px 14px; background: var(--bad-bg); border-radius: 6px; font-size: 15px; }
   #skipped ul { margin: 6px 0 0; padding-left: 18px; }
+  .setup { margin: 28px 32px 0; max-width: 760px; }
+  .setup.first { margin: 56px auto 0; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .row .primary { width: auto; }
+  .secondary { background: transparent; color: var(--action); border-color: var(--line); margin-top: 18px; }
+  .secondary:hover { border-color: var(--action); }
+  #source-result { margin: 14px 32px 0; padding: 10px 12px; border-radius: 6px; font-size: 15px; max-width: 760px; }
+  #source-result.good { background: var(--good-bg); color: #1d5039; }
+  #source-result.bad { background: var(--bad-bg); color: #6d2614; }
+  #source-result div + div { margin-top: 4px; }
+  .folderbar { margin: 18px 32px 0; color: var(--muted); font-size: 15px; }
+  .folderbar strong { color: var(--ink); }
+  .linkbtn { background: none; border: 0; padding: 0 0 0 8px; color: var(--action); text-decoration: underline; font-size: 15px; font-weight: 500; }
   @media (max-width: 860px) {
+    .setup, .setup.first { margin: 20px 16px 0; }
+    .folderbar, #source-result { margin-left: 16px; margin-right: 16px; }
     main { grid-template-columns: 1fr; padding: 20px 16px; }
     header { padding: 18px 16px; }
     .notice { margin: 0 16px; }
@@ -92,7 +107,27 @@
 
 <div id="notices"></div>
 
-<main>
+<div class="folderbar" id="folderbar" hidden>
+  Drive folder: <strong id="folder-name"></strong><span id="folder-readonly" hidden> (view only)</span>
+  <button class="linkbtn" id="change-folder" type="button">Change</button>
+</div>
+
+<section class="panel setup" id="setup" hidden>
+  <h2 id="setup-title">Connect a Google Drive folder</h2>
+  <form id="source-form">
+    <label for="source-link">Drive folder link</label>
+    <input type="text" id="source-link" placeholder="https://drive.google.com/drive/folders/..." autocomplete="off" spellcheck="false" required>
+    <p class="help">Open the folder in Google Drive and copy the address from the browser bar. Each subfolder inside it is one ad (MP4, JPG or PNG). Files placed directly in the main folder are ignored.</p>
+    <div class="row">
+      <button class="primary" id="source-btn" type="submit">Load ads</button>
+      <button class="secondary" id="source-cancel" type="button" hidden>Cancel</button>
+    </div>
+  </form>
+</section>
+
+<div id="source-result" hidden></div>
+
+<main id="main">
   <section class="panel">
     <h2>Add an ad</h2>
     <form id="upload-form">
@@ -127,6 +162,7 @@
 const $ = (sel) => document.querySelector(sel);
 let maxUploadMb = 500;
 let canUpload = true;
+let changingFolder = false;
 
 const pad = (n) => String(n).padStart(2, '0');
 const time = (iso) => iso ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
@@ -167,9 +203,31 @@ function showNotices(status) {
   if (status.publishing.reason) add('info', [status.publishing.reason]);
 }
 
+function renderSetup(s) {
+  const first = s.needsSetup;
+  $('#setup').hidden = !(first || changingFolder);
+  $('#setup').classList.toggle('first', first);
+  $('#setup-title').textContent = first ? 'Connect a Google Drive folder' : 'Change the Drive folder';
+  $('#source-cancel').hidden = first;
+  $('#main').hidden = first;
+  $('.actions').hidden = first;
+  $('#folderbar').hidden = first;
+  if (!first) {
+    $('#folder-name').textContent = s.source.folderName || s.source.folderId;
+    $('#folder-readonly').hidden = s.source.canWrite !== false;
+  }
+}
+
 function renderStatus(s) {
   maxUploadMb = s.settings.maxUploadMb;
-  canUpload = s.publishing.enabled;
+  canUpload = s.canUpload;
+  renderSetup(s);
+  if (s.needsSetup) {
+    $('#status-line').textContent = 'Paste a Google Drive folder link to get started.';
+    $('#ad-folders').replaceChildren();
+    showNotices(s);
+    return;
+  }
   $('#file-help').textContent = `MP4 video, or JPG or PNG image. Up to ${maxUploadMb} MB.`;
   const parts = [];
   if (s.running) parts.push('Syncing now.');
@@ -254,7 +312,7 @@ $('#upload-form').addEventListener('submit', (event) => {
   if (!file || !adName) return;
   const type = file.type || MIME_BY_EXT[file.name.split('.').pop().toLowerCase()] || '';
   if (!canUpload) {
-    return showResult('bad', ['Uploading needs Drive write access, which is not set up yet.', 'Fix: complete step 5 (npm run auth), save .env, and restart the backend.']);
+    return showResult('bad', ['Uploading needs edit access to the Drive folder.', 'Fix: run npm run auth, save the token in .env and restart the backend. A view-only folder cannot take uploads.']);
   }
   if (file.size > maxUploadMb * 1048576) {
     return showResult('bad', [`${file.name} is ${size(file.size)}. The limit is ${maxUploadMb} MB.`, 'Re-encode the video at 1080p, H.264, around 8 Mbps.']);
@@ -284,7 +342,7 @@ $('#upload-form').addEventListener('submit', (event) => {
       const where = body.folderCreated ? `the new ad "${body.adName}"` : `"${body.adName}"`;
       const syncLine = body.syncError
         ? `Saved in Drive, but the sync failed: ${body.syncError.message}`
-        : body.sync?.published ? `Published. It plays as number ${body.sync.totalAds} in the loop.` : 'Added to the run order.';
+        : body.sync ? `Added to the run order (${body.sync.totalAds} ads in the loop).` : 'Added to the run order.';
       showResult('good', [`Uploaded ${body.file?.name || file.name} to ${where}.`, syncLine]);
       $('#file').value = '';
     } else {
@@ -293,6 +351,51 @@ $('#upload-form').addEventListener('submit', (event) => {
     refresh();
   };
   xhr.send(file);
+});
+
+function showSource(kind, lines) {
+  const box = $('#source-result');
+  box.hidden = false;
+  box.className = kind;
+  box.replaceChildren(...lines.filter(Boolean).map((l) => Object.assign(document.createElement('div'), { textContent: l })));
+}
+
+$('#change-folder').addEventListener('click', () => {
+  changingFolder = true;
+  $('#source-result').hidden = true;
+  $('#setup').hidden = false;
+  $('#source-link').focus();
+});
+
+$('#source-cancel').addEventListener('click', () => {
+  changingFolder = false;
+  $('#setup').hidden = true;
+});
+
+$('#source-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const btn = $('#source-btn');
+  btn.disabled = true;
+  btn.textContent = 'Checking the folder…';
+  $('#source-result').hidden = true;
+  try {
+    const r = await api('/api/source', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ link: $('#source-link').value }) });
+    const t = r.summary;
+    showSource('good', [
+      `Connected "${r.source.folderName}": ${t.totalAds} ad${t.totalAds === 1 ? '' : 's'} (${t.videos} video${t.videos === 1 ? '' : 's'}, ${t.images} image${t.images === 1 ? '' : 's'}) in ${t.adFolders.length} subfolder${t.adFolders.length === 1 ? '' : 's'}.`,
+      r.source.canWrite === false && 'This folder is view-only for the signed-in Google account, so uploading from this page is off.',
+      ...r.warnings,
+      r.syncError && `The first sync failed: ${r.syncError.message}`,
+    ]);
+    $('#source-link').value = '';
+    changingFolder = false;
+    setTimeout(() => { $('#source-result').hidden = true; }, 15000);
+  } catch (err) {
+    showSource('bad', [err.message, err.hint && `Fix: ${err.hint}`]);
+  }
+  btn.disabled = false;
+  btn.textContent = 'Load ads';
+  refresh();
 });
 
 refresh();

@@ -11,18 +11,20 @@ import { createDriveWriter } from '../src/drive/writer.js';
 import { createStateStore } from '../src/lib/stateStore.js';
 import { createSyncService } from '../src/services/syncService.js';
 import { createUploadService } from '../src/services/uploadService.js';
+import { createSourceService } from '../src/services/sourceService.js';
+import { parseFolderInput } from '../src/drive/parseFolderLink.js';
 import { startFakeGoogle } from './fakeGoogle.js';
 import { ROOT_ID, sampleDrive } from './fixtures.js';
 
 const quiet = { info() {}, error() {} };
 const AUTH = { Authorization: `Basic ${Buffer.from('admin:secret').toString('base64')}` };
 
-async function setup({ apiKey = 'good-key', withOAuth = true, publicVisible = true, publish = true } = {}) {
+async function setup({ apiKey = 'good-key', withOAuth = true, publicVisible = true, publish = true, folderId = ROOT_ID, readOnly = false } = {}) {
   const drive = sampleDrive();
-  const google = await startFakeGoogle({ apiKey: 'good-key', root: drive.root, children: drive.children, rootId: ROOT_ID, publicVisible });
+  const google = await startFakeGoogle({ apiKey: 'good-key', root: drive.root, children: drive.children, rootId: ROOT_ID, publicVisible, readOnly });
   const dataDir = await mkdtemp(path.join(os.tmpdir(), 'tvads-'));
   const config = loadConfig({
-    DRIVE_FOLDER_ID: ROOT_ID, DRIVE_API_KEY: apiKey, PUBLISH_TO_DRIVE: publish ? 'true' : 'false', ADMIN_PASSWORD: 'secret', MAX_UPLOAD_MB: '1', DATA_DIR: dataDir,
+    DRIVE_FOLDER_ID: folderId, DRIVE_API_KEY: apiKey, PUBLISH_TO_DRIVE: publish ? 'true' : 'false', ADMIN_PASSWORD: 'secret', MAX_UPLOAD_MB: '1', DATA_DIR: dataDir,
     GOOGLE_CLIENT_ID: withOAuth ? 'id' : '', GOOGLE_CLIENT_SECRET: withOAuth ? 'sec' : '', GOOGLE_REFRESH_TOKEN: withOAuth ? 'rt' : '',
     DRIVE_API_BASE: `${google.base}/drive/v3`, DRIVE_UPLOAD_BASE: `${google.base}/upload/drive/v3`, GOOGLE_TOKEN_URL: `${google.base}/token`,
   });
@@ -31,11 +33,11 @@ async function setup({ apiKey = 'good-key', withOAuth = true, publicVisible = tr
   const reader = createPublicReader(config, tokens);
   const sync = createSyncService({ config, reader, writer, store: createStateStore(dataDir), log: quiet });
   await sync.init();
-  const app = createApp({ config, sync, uploads: createUploadService({ config, writer, sync }), reader, log: quiet });
+  const app = createApp({ config, sync, uploads: createUploadService({ config, writer, sync }), sources: createSourceService({ reader, sync }), reader, log: quiet });
   await new Promise((r) => app.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${app.address().port}`;
   const close = async () => { app.close(); google.server.close(); await rm(dataDir, { recursive: true, force: true }); };
-  return { google, sync, base, close, dataDir };
+  return { google, sync, base, close, dataDir, config, reader, writer };
 }
 
 const fileByName = (google, name) => [...google.files.values()].find((f) => f.name === name);
@@ -224,4 +226,101 @@ test('GET /api/ads/:id returns one ad (admin login)', async (t) => {
   const ad = await (await fetch(`${env.base}/api/ads/img1`, { headers: AUTH })).json();
   assert.equal(ad.fileName, 'poster.jpg');
   assert.equal((await fetch(`${env.base}/api/ads/img1`)).status, 401);
+});
+
+const post = (env, path, body) => fetch(`${env.base}${path}`, { method: 'POST', headers: { ...AUTH, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+const FOLDER_LINK = (id) => `https://drive.google.com/drive/folders/${id}?usp=sharing`;
+
+test('parseFolderInput accepts common link shapes and rejects the rest with a clear message', () => {
+  const ID = '1AbCdEfGhIjKlMnOpQrStUvWxYz_-12';
+  assert.equal(parseFolderInput(`https://drive.google.com/drive/folders/${ID}`), ID);
+  assert.equal(parseFolderInput(`https://drive.google.com/drive/folders/${ID}?usp=sharing`), ID);
+  assert.equal(parseFolderInput(`https://drive.google.com/drive/u/2/folders/${ID}`), ID);
+  assert.equal(parseFolderInput(`  drive.google.com/drive/folders/${ID}  `), ID);
+  assert.equal(parseFolderInput(`https://drive.google.com/open?id=${ID}`), ID);
+  assert.equal(parseFolderInput(`https://drive.google.com/folderview?id=${ID}&usp=sharing`), ID);
+  assert.equal(parseFolderInput(ID), ID);
+  assert.throws(() => parseFolderInput(''), /Paste/);
+  assert.throws(() => parseFolderInput(`https://drive.google.com/file/d/${ID}/view`), /single file/);
+  assert.throws(() => parseFolderInput(`https://example.com/drive/folders/${ID}`), /not a Google Drive link/);
+  assert.throws(() => parseFolderInput('https://drive.google.com/drive/my-drive'), /Could not find a folder/);
+  assert.throws(() => parseFolderInput('not a link at all'), /link/);
+});
+
+test('first run: no folder yet, nothing to scan, /tv shows a waiting page, then pasting a link loads the ads', async (t) => {
+  const env = await setup({ folderId: '' }); t.after(env.close);
+  assert.equal(env.sync.getStatus().needsSetup, true);
+  assert.equal((await env.sync.sync()).needsSetup, true);
+  const waiting = await fetch(`${env.base}/tv`);
+  assert.equal(waiting.status, 503);
+  assert.match(await waiting.text(), /No Drive folder is connected/);
+
+  const res = await post(env, '/api/source', { link: FOLDER_LINK(ROOT_ID) });
+  const body = await res.json();
+  assert.equal(res.status, 200, JSON.stringify(body));
+  assert.equal(body.source.folderName, 'Test root');
+  assert.equal(body.source.canWrite, true);
+  assert.equal(body.summary.totalAds, 3);
+  assert.equal(body.sync.totalAds, 3);
+  assert.ok(body.warnings.some((w) => /ignored/.test(w)), 'root-level files are called out');
+  assert.equal(env.sync.getStatus().needsSetup, false);
+  assert.equal((await fetch(`${env.base}/tv`)).status, 200);
+});
+
+test('the chosen folder is remembered across a restart and wins over .env', async (t) => {
+  const env = await setup({ folderId: '' }); t.after(env.close);
+  await post(env, '/api/source', { link: FOLDER_LINK(ROOT_ID) });
+  const again = createSyncService({ config: loadConfig({ DRIVE_FOLDER_ID: 'OLD_FOLDER_FROM_ENV_123', DRIVE_API_KEY: 'k', DATA_DIR: env.dataDir }), reader: env.reader, writer: env.writer, store: createStateStore(env.dataDir), log: quiet });
+  await again.init();
+  assert.equal(again.getSource().folderId, ROOT_ID);
+});
+
+test('bad links and unreachable folders are rejected with a reason and change nothing', async (t) => {
+  const env = await setup(); t.after(env.close);
+  const file = await post(env, '/api/source', { link: 'https://drive.google.com/file/d/ABCDEFGHIJKLMNOP/view' });
+  assert.equal(file.status, 400);
+  assert.match((await file.json()).error, /single file/);
+  const missing = await post(env, '/api/source', { link: FOLDER_LINK('DOES_NOT_EXIST_123456') });
+  assert.equal(missing.status, 404);
+  assert.match((await missing.json()).hint, /shared with the Google account/);
+  env.google.files.set('SOME_VIDEO_FILE_12345', { id: 'SOME_VIDEO_FILE_12345', name: 'x.mp4', mimeType: 'video/mp4', parents: [ROOT_ID], trashed: false });
+  const notFolder = await post(env, '/api/source', { link: FOLDER_LINK('SOME_VIDEO_FILE_12345') });
+  assert.equal(notFolder.status, 400);
+  assert.match((await notFolder.json()).error, /is a file, not a folder/);
+  assert.equal(env.sync.getSource().folderId, ROOT_ID);
+  assert.equal((await post(env, '/api/source', {})).status, 400);
+  assert.equal((await fetch(`${env.base}/api/source`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status, 401);
+});
+
+test('switching folders replaces the ads and the old run order is gone', async (t) => {
+  const env = await setup(); t.after(env.close);
+  await env.sync.sync();
+  env.google.files.set('SECOND_FOLDER_1234567', { id: 'SECOND_FOLDER_1234567', name: 'Second', mimeType: 'application/vnd.google-apps.folder', parents: [ROOT_ID], trashed: false });
+  env.google.files.set('SECOND_AD_FILE_123456', { id: 'SECOND_AD_FILE_123456', name: 'only.png', mimeType: 'image/png', size: '10', createdTime: '2026-09-09T00:00:00Z', modifiedTime: '2026-09-09T00:00:00Z', parents: ['SECOND_FOLDER_1234567'], trashed: false });
+  // SECOND_FOLDER is itself a folder whose child "only.png" sits directly inside it, so it has no ad subfolders.
+  const res = await post(env, '/api/source', { link: FOLDER_LINK('SECOND_FOLDER_1234567') });
+  const body = await res.json();
+  assert.equal(res.status, 200, JSON.stringify(body));
+  assert.equal(body.summary.totalAds, 0);
+  assert.ok(body.warnings.some((w) => /no subfolders/.test(w)));
+  assert.equal(env.sync.getManifest().ads.length, 0);
+  assert.equal(env.sync.getStatus().source.folderName, 'Second');
+});
+
+test('view-only folder: ads are scanned, uploads and Drive publishing are refused politely', async (t) => {
+  const env = await setup({ folderId: '', readOnly: true }); t.after(env.close);
+  const body = await (await post(env, '/api/source', { link: ROOT_ID })).json();
+  assert.equal(body.source.canWrite, false);
+  assert.equal(body.summary.totalAds, 3);
+  assert.equal(body.sync.published, false);
+  const up = await fetch(`${env.base}/api/upload?adName=X&fileName=a.png`, { method: 'PUT', headers: { ...AUTH, 'Content-Type': 'image/png' }, body: Buffer.alloc(10) });
+  assert.equal(up.status, 403);
+  assert.match((await up.json()).error, /view-only/);
+});
+
+test('upload before any folder is connected explains what to do', async (t) => {
+  const env = await setup({ folderId: '' }); t.after(env.close);
+  const up = await fetch(`${env.base}/api/upload?adName=X&fileName=a.png`, { method: 'PUT', headers: { ...AUTH, 'Content-Type': 'image/png' }, body: Buffer.alloc(10) });
+  assert.equal(up.status, 409);
+  assert.match((await up.json()).hint, /admin page/);
 });
