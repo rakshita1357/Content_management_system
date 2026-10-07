@@ -33,7 +33,8 @@ const server = createApp({ config, sync, uploads, sources, reader, log });
 server.requestTimeout = 0; // large video uploads can take longer than Node's default 5 minutes
 
 server.listen(config.port, () => {
-  log.info(`Admin page: http://localhost:${config.port}/admin`);
+  log.info(`Start page (paste a Drive folder link): http://localhost:${config.port}/`);
+  log.info(`TV page: http://localhost:${config.port}/tv    Admin page: http://localhost:${config.port}/admin`);
   if (!config.adminPassword) log.info('Warning: ADMIN_PASSWORD is empty, so the admin page has no login.');
   if (!writer) log.info('Drive write access is not set up: scanning and preview work, publishing and uploads are off.');
   sync.start();
