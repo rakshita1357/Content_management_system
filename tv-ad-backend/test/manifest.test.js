@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildManifest } from '../src/manifest/buildManifest.js';
 import { validateManifest } from '../src/manifest/validate.js';
-import { renderIndexHtml } from '../src/manifest/renderIndexHtml.js';
 import { ROOT_ID, sampleDrive } from './fixtures.js';
 
 const build = (drive = sampleDrive(), now = new Date('2026-10-06T08:00:00Z')) => buildManifest({
@@ -53,21 +52,4 @@ test('generated manifest passes validation; broken one does not', () => {
   assert.deepEqual(validateManifest(m), []);
   m.ads[0].order = 5;
   assert.ok(validateManifest(m).length > 0);
-});
-
-test('index.html embeds the JSON safely and carries the revision', () => {
-  const drive = sampleDrive();
-  drive.children.get('fold_b')[0].name = '</script><img src=x onerror=alert(1)>.jpg';
-  const m = build(drive);
-  const html = renderIndexHtml(m);
-  assert.equal((html.match(/<\/script>/g) || []).length, 2, 'only the two real closing tags');
-  assert.ok(html.includes(`<meta name="ads-revision" content="${m.revision}">`));
-  const json = html.match(/<script type="application\/json" id="ads-data">([\s\S]*?)<\/script>/)[1];
-  assert.equal(JSON.parse(json).ads[0].fileName, drive.children.get('fold_b')[0].name);
-});
-
-test('index.html script uses no ES2015+ syntax (old webOS browsers)', () => {
-  const html = renderIndexHtml(build());
-  const script = html.split('<script>')[1].split('</script>')[0];
-  assert.doesNotMatch(script, /=>|\blet\b|\bconst\b|`|padStart|\.\.\./);
 });

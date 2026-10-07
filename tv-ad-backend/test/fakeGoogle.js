@@ -2,7 +2,7 @@
 import http from 'node:http';
 import { FOLDER } from './fixtures.js';
 
-export function startFakeGoogle({ apiKey, root, children, rootId, publicVisible = true }) {
+export function startFakeGoogle({ apiKey, root, children, rootId, publicVisible = true, readOnly = false }) {
   const files = new Map();
   const add = (f, parent) => files.set(f.id, { ...f, parents: [parent], trashed: false });
   root.forEach((f) => add(f, rootId));
@@ -32,6 +32,14 @@ export function startFakeGoogle({ apiKey, root, children, rootId, publicVisible 
       const to = m[2] ? Math.min(Number(m[2]), data.length - 1) : data.length - 1;
       res.writeHead(206, { 'Content-Length': to - from + 1, 'Content-Range': `bytes ${from}-${to}/${data.length}` });
       return res.end(data.subarray(from, to + 1));
+    }
+    if (req.method === 'GET' && url.pathname.startsWith('/drive/v3/files/')) {
+      if (url.searchParams.get('key') !== apiKey && !authed(req)) return json(res, 401, { error: { message: 'Invalid Credentials' } });
+      const id = url.pathname.split('/').pop();
+      if (id === rootId) return json(res, 200, { id, name: 'Test root', mimeType: FOLDER, trashed: false, capabilities: { canAddChildren: !readOnly } });
+      const f = files.get(id);
+      if (!f) return json(res, 404, { error: { message: 'File not found' } });
+      return json(res, 200, { id, name: f.name, mimeType: f.mimeType, trashed: f.trashed, capabilities: { canAddChildren: !readOnly } });
     }
     if (req.method === 'GET' && url.pathname === '/drive/v3/files') {
       if (url.searchParams.get('key') !== apiKey && !authed(req)) return json(res, 400, { error: { message: 'API key not valid. Please pass a valid API key.' } });

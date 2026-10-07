@@ -11,17 +11,17 @@ export const MEDIA_TYPES = {
 };
 
 // Files the backend writes into the main folder; the scanner ignores them.
+// ads.json is the optional Drive copy; index.html is ignored by the scanner because older versions published it.
 export const PUBLISHED_FILES = { manifest: 'ads.json', page: 'index.html' };
 
 const ID_PATTERN = /^[A-Za-z0-9_-]{10,}$/;
 
 export function loadConfig(env = process.env) {
-  if (!env.DRIVE_FOLDER_ID) throw new Error('Missing DRIVE_FOLDER_ID in .env. Copy .env.example to .env and fill it in.');
   const hasOAuth = Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GOOGLE_REFRESH_TOKEN);
   if (!hasOAuth && !env.DRIVE_API_KEY) {
     throw new Error('Set up Google access in .env: either the OAuth values (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN; run "npm run auth") or, for a public folder only, DRIVE_API_KEY.');
   }
-  if (!ID_PATTERN.test(env.DRIVE_FOLDER_ID)) {
+  if (env.DRIVE_FOLDER_ID && !ID_PATTERN.test(env.DRIVE_FOLDER_ID)) {
     throw new Error('DRIVE_FOLDER_ID looks wrong. Use only the ID part of the folder URL, not the whole link.');
   }
   const num = (name, fallback, min) => {
@@ -31,7 +31,8 @@ export function loadConfig(env = process.env) {
   };
   return {
     port: num('PORT', 8080, 1),
-    rootFolderId: env.DRIVE_FOLDER_ID,
+    // Optional: the folder can also be chosen in the admin page, which then takes priority.
+    rootFolderId: env.DRIVE_FOLDER_ID || '',
     apiKey: env.DRIVE_API_KEY || '',
     oauth: {
       clientId: env.GOOGLE_CLIENT_ID || '',
@@ -45,6 +46,7 @@ export function loadConfig(env = process.env) {
     maxUploadMb: num('MAX_UPLOAD_MB', 500, 1),
     // Off by default: the TV reads the backend, not Drive. Turn on to also keep ads.json/index.html copies in the folder.
     publishToDrive: env.PUBLISH_TO_DRIVE === 'true',
+    webCoreDir: env.WEB_CORE_DIR || fileURLToPath(new URL('../../web-core/', import.meta.url)),
     dataDir: env.DATA_DIR || fileURLToPath(new URL('../data/', import.meta.url)),
     // Overridable so tests can point at a fake Google server.
     urls: {

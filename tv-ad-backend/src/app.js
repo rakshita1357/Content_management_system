@@ -1,37 +1,57 @@
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { AppError } from './lib/errors.js';
 import { publicManifest } from './manifest/buildManifest.js';
-import { isAuthorized, sendJson, sendText } from './lib/http.js';
+import { isAuthorized, readJson, sendJson, sendText } from './lib/http.js';
 
 const ADMIN_PAGE = new URL('../public/admin.html', import.meta.url);
+const START_PAGE = new URL('../public/start.html', import.meta.url);
 
 /**
  * Routes
  *   GET  /healthz, /api/health liveness check (no login)
- *   GET  /tv                   the TV page: details table, then the player (no login, TV opens this)
+ *   GET  /tv/                  the TV page (static files from web-core/): details table, then the player (no login)
  *   GET  /tv/ads.json          current manifest for the TV (no login)
  *   GET  /api/ads/:id/content  streams one ad's media from Drive, supports Range (no login, only ids in ads.json)
  *   GET  /api/ads/:id          one ad's metadata
  *   GET  /admin                admin page
+ *   GET  /                    start page: one box for a Drive folder link, then on to /tv
  *   GET  /api/status           sync and publishing status
  *   GET  /api/ads              current ads.json
+ *   GET  /api/source           the Drive folder in use
+ *   POST /api/source           {link}: validate a pasted Drive folder link and switch to it
  *   POST /api/sync             rescan Drive and publish now
  *   PUT  /api/upload?adName=&fileName=   raw file body, streamed to Drive
- *   GET  /preview/index.html   the TV page as it will be published
  *   GET  /preview/ads.json     the manifest as it will be published
  */
-export function createApp({ config, sync, uploads, reader, log = console }) {
-  const tvPage = (req, res) => {
-    const html = sync.getIndexHtml();
-    if (!html) throw new AppError(503, 'No scan has finished yet. Wait a moment and reload.');
-    sendText(res, 200, 'text/html', html);
+export function createApp({ config, sync, uploads, sources, reader, log = console }) {
+  // The TV page is a set of static files from web-core/ (the same files a packaged TV app bundles).
+  const WEB_CORE_TYPES = {
+    'index.html': 'text/html; charset=utf-8',
+    'app.css': 'text/css; charset=utf-8',
+    'player.js': 'application/javascript; charset=utf-8',
+    'config.js': 'application/javascript; charset=utf-8',
+  };
+  const webCore = (name) => async (req, res) => {
+    let body;
+    try {
+      body = await readFile(path.join(config.webCoreDir, name));
+    } catch {
+      throw new AppError(500, `The TV page file ${name} is missing from ${config.webCoreDir}.`);
+    }
+    res.writeHead(200, { 'Content-Type': WEB_CORE_TYPES[name], 'Cache-Control': 'no-store' });
+    res.end(body);
   };
   const tvManifest = (req, res) => {
     const manifest = sync.getManifest();
-    if (!manifest) throw new AppError(503, 'No scan has finished yet.');
+    if (!manifest) {
+      throw new AppError(503, sync.getStatus().needsSetup
+        ? 'No Drive folder is connected yet. Open the start page on a computer and paste a folder link.'
+        : 'Loading the ads. This page retries automatically.');
+    }
     sendJson(res, 200, publicManifest(manifest));
   };
   const findAd = (id) => {
@@ -56,10 +76,15 @@ export function createApp({ config, sync, uploads, reader, log = console }) {
   }
 
   const routes = {
-    'GET /': (req, res) => { res.writeHead(302, { Location: '/admin' }); res.end(); },
+    'GET /': async (req, res) => sendText(res, 200, 'text/html', await readFile(START_PAGE, 'utf8')),
     'GET /admin': async (req, res) => sendText(res, 200, 'text/html', await readFile(ADMIN_PAGE, 'utf8')),
     'GET /api/status': (req, res) => sendJson(res, 200, sync.getStatus()),
     'GET /api/ads': (req, res) => sendJson(res, 200, sync.getManifest() || { ads: [], skipped: [] }),
+    'GET /api/source': (req, res) => sendJson(res, 200, { source: sync.getSource() }),
+    'POST /api/source': async (req, res) => {
+      const body = await readJson(req);
+      sendJson(res, 200, await sources.apply(body.link));
+    },
     'POST /api/sync': async (req, res) => sendJson(res, 200, await sync.sync({ reason: 'manual', force: true })),
     'PUT /api/upload': async (req, res, url) => {
       const result = await uploads.upload({
@@ -71,7 +96,6 @@ export function createApp({ config, sync, uploads, reader, log = console }) {
       });
       sendJson(res, 201, result);
     },
-    'GET /preview/index.html': tvPage,
     'GET /preview/ads.json': (req, res) => {
       const manifest = sync.getManifest();
       if (!manifest) throw new AppError(503, 'No scan has finished yet.');
@@ -83,9 +107,12 @@ export function createApp({ config, sync, uploads, reader, log = console }) {
   const publicRoutes = {
     'GET /healthz': (req, res) => sendJson(res, 200, { ok: true }),
     'GET /api/health': (req, res) => sendJson(res, 200, { ok: true }),
-    'GET /tv': tvPage,
-    'GET /tv/': tvPage,
-    'GET /tv/index.html': tvPage,
+    'GET /tv': (req, res) => { res.writeHead(302, { Location: '/tv/' }); res.end(); },
+    'GET /tv/': webCore('index.html'),
+    'GET /tv/index.html': webCore('index.html'),
+    'GET /tv/app.css': webCore('app.css'),
+    'GET /tv/player.js': webCore('player.js'),
+    'GET /tv/config.js': webCore('config.js'),
     'GET /tv/ads.json': tvManifest,
   };
   const CONTENT = /^\/api\/ads\/([^/]+)\/content$/;
@@ -95,8 +122,10 @@ export function createApp({ config, sync, uploads, reader, log = console }) {
     const url = new URL(req.url, 'http://localhost');
     try {
       const content = url.pathname.match(CONTENT);
-      if ((req.method === 'GET' || req.method === 'HEAD') && content) return await streamContent(req, res, decodeURIComponent(content[1]));
       const open = publicRoutes[`${req.method} ${url.pathname}`];
+      // A packaged TV app (webOS, Android TV) loads web-core from its own origin, so the TV routes allow cross-origin reads.
+      if (content || open) res.setHeader('Access-Control-Allow-Origin', '*');
+      if ((req.method === 'GET' || req.method === 'HEAD') && content) return await streamContent(req, res, decodeURIComponent(content[1]));
       if (open) return await open(req, res);
       if (!isAuthorized(req, config.adminUser, config.adminPassword)) {
         res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="TV ads admin", charset="UTF-8"' });

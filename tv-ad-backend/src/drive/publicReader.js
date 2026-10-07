@@ -1,4 +1,4 @@
-import { driveError } from '../lib/errors.js';
+import { AppError, driveError } from '../lib/errors.js';
 
 // Lists Drive folders. By default it uses the API key only (exactly the access the TV has).
 // When a token provider is passed and OAuth is configured, listChildren() authenticates as the
@@ -34,6 +34,23 @@ export function createPublicReader({ apiKey, urls }, tokens = null, fetchImpl = 
     } while (pageToken);
     return files;
   }
+  // Folder details for validating a pasted link. Throws a readable error when it cannot be opened.
+  async function getFolder(folderId) {
+    const params = new URLSearchParams({ fields: 'id,name,mimeType,trashed,capabilities(canAddChildren)', supportsAllDrives: 'true' });
+    const headers = {};
+    if (useOAuth) headers.Authorization = `Bearer ${await tokens.getAccessToken()}`;
+    else params.set('key', apiKey);
+    const res = await fetchImpl(`${urls.driveApi}/files/${encodeURIComponent(folderId)}?${params}`, { headers });
+    if (res.status === 404 || res.status === 403) {
+      throw new AppError(404, 'Google Drive cannot open this folder with the account the backend uses.',
+        useOAuth
+          ? 'Check the link, and make sure the folder is yours or shared with the Google account you signed in with (npm run auth).'
+          : 'Check the link. Without OAuth the folder must be shared as "Anyone with the link: Viewer".');
+    }
+    if (!res.ok) throw await driveError(res, 'open the folder');
+    return res.json();
+  }
+
   // Opens a media file for streaming to the TV. Passes the Range header through so video can seek.
   async function openMedia(fileId, range, signal) {
     const headers = {};
@@ -47,6 +64,7 @@ export function createPublicReader({ apiKey, urls }, tokens = null, fetchImpl = 
   }
 
   return {
+    getFolder,
     openMedia,
     usesOAuth: useOAuth,
     listChildren: (folderId) => list(folderId, useOAuth),

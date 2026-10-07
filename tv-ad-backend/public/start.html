@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TV ads</title>
+<style>
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px;
+    background: #0f2233; color: #e8eef3; font: 18px/1.45 "Segoe UI", Roboto, Arial, sans-serif; }
+  form { width: 100%; max-width: 640px; }
+  h1 { margin: 0 0 18px; font-size: 32px; letter-spacing: 0.01em; }
+  .row { display: flex; gap: 10px; }
+  input { flex: 1; min-width: 0; font: inherit; padding: 13px 14px; border: 2px solid #35526b; border-radius: 8px; background: #fff; color: #14263a; }
+  button { font: inherit; font-weight: 600; padding: 13px 26px; border: 0; border-radius: 8px; background: #f5b841; color: #0f2233; cursor: pointer; }
+  button:disabled { opacity: 0.6; cursor: progress; }
+  :focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+  #msg { margin: 16px 0 0; padding: 12px 14px; border-radius: 8px; font-size: 16px; }
+  #msg.bad { background: #fbeee9; color: #6d2614; }
+  #msg.info { background: #1b3650; color: #e8eef3; }
+  #msg p { margin: 0; }
+  #msg p + p { margin-top: 4px; }
+  @media (max-width: 520px) { .row { flex-direction: column; } }
+</style>
+</head>
+<body>
+<form id="form">
+  <h1>TV ads</h1>
+  <div class="row">
+    <input id="link" type="text" placeholder="Paste a Google Drive folder link" autocomplete="off" spellcheck="false" autofocus required aria-label="Google Drive folder link">
+    <button id="go" type="submit">Submit</button>
+  </div>
+  <div id="msg" hidden></div>
+</form>
+<script>
+const $ = (s) => document.querySelector(s);
+function say(kind, lines) {
+  const box = $('#msg');
+  box.hidden = false;
+  box.className = kind;
+  box.replaceChildren(...lines.filter(Boolean).map((t) => Object.assign(document.createElement('p'), { textContent: t })));
+}
+$('#form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = $('#go');
+  btn.disabled = true;
+  say('info', ['Checking the folder and loading the ads…']);
+  try {
+    const res = await fetch('/api/source', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ link: $('#link').value }) });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw Object.assign(new Error(body.error || `Something went wrong (HTTP ${res.status}).`), { hint: body.hint });
+    if (body.syncError) throw Object.assign(new Error(`The folder was found, but loading the ads failed: ${body.syncError.message}`), { hint: body.syncError.hint });
+    if (!body.summary.totalAds) {
+      say('info', [`Connected to "${body.source.folderName}", but there are no ads in it yet.`, ...body.warnings, 'Add MP4, JPG or PNG files inside subfolders of that folder, then submit the link again.']);
+      btn.disabled = false;
+      return;
+    }
+    window.location.href = '/tv/';
+  } catch (err) {
+    say('bad', [err.message, err.hint && `Fix: ${err.hint}`]);
+    btn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

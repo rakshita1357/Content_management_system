@@ -69,7 +69,11 @@
   .empty { color: var(--muted); }
   #skipped { margin-top: 18px; padding: 12px 14px; background: var(--bad-bg); border-radius: 6px; font-size: 15px; }
   #skipped ul { margin: 6px 0 0; padding-left: 18px; }
+  .folderbar { margin: 18px 32px 0; color: var(--muted); font-size: 15px; }
+  .folderbar strong { color: var(--ink); }
+  .linkbtn { padding: 0 0 0 8px; color: var(--action); text-decoration: underline; font-size: 15px; font-weight: 500; }
   @media (max-width: 860px) {
+    .folderbar { margin-left: 16px; margin-right: 16px; }
     main { grid-template-columns: 1fr; padding: 20px 16px; }
     header { padding: 18px 16px; }
     .notice { margin: 0 16px; }
@@ -92,7 +96,12 @@
 
 <div id="notices"></div>
 
-<main>
+<div class="folderbar" id="folderbar" hidden>
+  Drive folder: <strong id="folder-name"></strong><span id="folder-readonly" hidden> (view only)</span>
+  <a class="linkbtn" href="/">Change</a>
+</div>
+
+<main id="main">
   <section class="panel">
     <h2>Add an ad</h2>
     <form id="upload-form">
@@ -167,9 +176,27 @@ function showNotices(status) {
   if (status.publishing.reason) add('info', [status.publishing.reason]);
 }
 
+function renderSetup(s) {
+  const first = s.needsSetup;
+  $('#main').hidden = first;
+  $('.actions').hidden = first;
+  $('#folderbar').hidden = first;
+  if (!first) {
+    $('#folder-name').textContent = s.source.folderName || s.source.folderId;
+    $('#folder-readonly').hidden = s.source.canWrite !== false;
+  }
+}
+
 function renderStatus(s) {
   maxUploadMb = s.settings.maxUploadMb;
-  canUpload = s.publishing.enabled;
+  canUpload = s.canUpload;
+  renderSetup(s);
+  if (s.needsSetup) {
+    $('#status-line').innerHTML = 'No Drive folder is connected yet. <a href="/" style="color:#f5b841">Paste a folder link</a> to get started.';
+    $('#ad-folders').replaceChildren();
+    showNotices(s);
+    return;
+  }
   $('#file-help').textContent = `MP4 video, or JPG or PNG image. Up to ${maxUploadMb} MB.`;
   const parts = [];
   if (s.running) parts.push('Syncing now.');
@@ -254,7 +281,7 @@ $('#upload-form').addEventListener('submit', (event) => {
   if (!file || !adName) return;
   const type = file.type || MIME_BY_EXT[file.name.split('.').pop().toLowerCase()] || '';
   if (!canUpload) {
-    return showResult('bad', ['Uploading needs Drive write access, which is not set up yet.', 'Fix: complete step 5 (npm run auth), save .env, and restart the backend.']);
+    return showResult('bad', ['Uploading needs edit access to the Drive folder.', 'Fix: run npm run auth, save the token in .env and restart the backend. A view-only folder cannot take uploads.']);
   }
   if (file.size > maxUploadMb * 1048576) {
     return showResult('bad', [`${file.name} is ${size(file.size)}. The limit is ${maxUploadMb} MB.`, 'Re-encode the video at 1080p, H.264, around 8 Mbps.']);
@@ -284,7 +311,7 @@ $('#upload-form').addEventListener('submit', (event) => {
       const where = body.folderCreated ? `the new ad "${body.adName}"` : `"${body.adName}"`;
       const syncLine = body.syncError
         ? `Saved in Drive, but the sync failed: ${body.syncError.message}`
-        : body.sync?.published ? `Published. It plays as number ${body.sync.totalAds} in the loop.` : 'Added to the run order.';
+        : body.sync ? `Added to the run order (${body.sync.totalAds} ads in the loop).` : 'Added to the run order.';
       showResult('good', [`Uploaded ${body.file?.name || file.name} to ${where}.`, syncLine]);
       $('#file').value = '';
     } else {
