@@ -35,7 +35,7 @@ The page asks for the admin login first when `ADMIN_PASSWORD` is set. A folder c
 `/admin` is the separate management page (upload, Sync now, view `ads.json`). Its "Change" link goes back to the front page.
 
 ## The TV page (`web-core/`)
-The TV page is a set of plain static files in `../web-core/` (`index.html`, `app.css`, `player.js`, `config.js`). The backend serves them at `http://<backend-address>:8080/tv/` with no login, and a packaged TV app (webOS, Android TV) can bundle the very same folder. Nothing in it is generated per ad list: the page loads `/tv/ads.json` when it opens.
+The TV page is a set of plain static files in `../web-core/` (`index.html`, `app.css`, `player.js`, `cache.js`, `config.js`). The backend serves them at `http://<backend-address>:8080/tv/` with no login, and a packaged TV app (webOS, Android TV) can bundle the very same folder. Nothing in it is generated per ad list: the page loads `/tv/ads.json` when it opens.
 - It shows the run-order table first, with a 10 second countdown, then the fullscreen player starts. Press Enter on "Start playing" to start sooner.
 - Playback: ads in run order, images for `IMAGE_DURATION_SEC` (60), videos until they end, then back to the first ad.
 - Keys: Esc / Back / the small X (bottom-right) return to the table; Left/Right skip to the previous/next ad.
@@ -44,8 +44,19 @@ The TV page is a set of plain static files in `../web-core/` (`index.html`, `app
 - If the backend cannot be reached, or no folder is connected yet, the page says so and retries every 10 seconds.
 - Media is streamed through `/api/ads/:id/content`, so no Google key reaches the browser. Only ads listed in `ads.json` are served.
 - **Different origin:** `config.js` holds `apiBase`. Empty means "the server that served this page". A packaged app sets it to the backend address, for example `window.TV_CONFIG = { apiBase: 'http://192.168.1.20:8080' };`. The TV routes send `Access-Control-Allow-Origin: *` so this works.
-- Keep `player.js` and `config.js` plain ES5 (no arrow functions, `let`/`const`, template strings); a test enforces it for old webOS browsers.
+- Keep `player.js`, `cache.js` and `config.js` plain ES5 (no arrow functions, `let`/`const`, template strings); a test enforces it for old webOS browsers.
 - If you deploy only the `tv-ad-backend` folder, point `WEB_CORE_DIR` at a copy of `web-core/`.
+
+## Offline play (`web-core/cache.js`)
+The TV page saves every ad's file in the browser's IndexedDB and plays the saved copy, so ads keep running when the backend or the network goes away.
+- **Saving:** after the ad list loads, files are downloaded one at a time in play order. The table's **Offline** column shows Saved, a percentage, Waiting, No space or Will retry, and the header shows "Saved for offline play: 12 of 14 ads (350 MB)".
+- **No pointless downloads:** a saved file is reused while its checksum (or modified time) and size are unchanged. A downloaded file whose size does not match Drive is thrown away and retried after 60 seconds.
+- **Changes:** when an ad is replaced in Drive it is downloaded again; when it is deleted, its saved file is removed. Ads that are still in the list are never deleted.
+- **Space:** the TV may use up to 70% of the space the browser allows (`navigator.storage`). Set `cacheMaxMb` in `web-core/config.js` to use a fixed limit instead. Ads that do not fit show "No space" and are streamed from the backend while it is reachable.
+- **Network drops:** the current and following ads play from the saved copies, the Wi-Fi icon turns red, and the page checks the backend every 30 seconds until it answers, then catches up with any changes.
+- **Restart without the backend:** if the page opens but cannot read `/tv/ads.json`, it starts from the last ad list it saved and plays the saved files. (A packaged TV app, which holds the page itself, can do this even when the backend is completely down.)
+- **Limits:** the page itself comes from the backend, so a plain browser tab on a TV that is switched on with the backend down cannot open it. Browsers also decide how long they keep stored data; the page asks them to keep it.
+- If IndexedDB is blocked (some private modes), the page streams from the backend exactly as before and says "Offline saving is not available in this browser".
 
 ## Trying it on an Android TV
 1. Put the TV and the computer running the backend on the same Wi-Fi/network.
@@ -82,6 +93,6 @@ src/services/uploadService.js  checks uploads and puts them in the right subfold
 src/app.js                     HTTP routes and login
 public/start.html              front page: one box for the Drive folder link
 public/admin.html              admin page (upload, Sync now)
-../web-core/                   the TV page: index.html, app.css, player.js, config.js (shared with TV wrappers)
+../web-core/                   the TV page: index.html, app.css, player.js, cache.js, config.js (shared with TV wrappers)
 docs/ads.schema.json           ads.json format
 ```

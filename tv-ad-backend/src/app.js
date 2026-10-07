@@ -34,6 +34,7 @@ export function createApp({ config, sync, uploads, sources, reader, log = consol
     'app.css': 'text/css; charset=utf-8',
     'player.js': 'application/javascript; charset=utf-8',
     'config.js': 'application/javascript; charset=utf-8',
+    'cache.js': 'application/javascript; charset=utf-8',
   };
   const webCore = (name) => async (req, res) => {
     let body;
@@ -113,6 +114,7 @@ export function createApp({ config, sync, uploads, sources, reader, log = consol
     'GET /tv/app.css': webCore('app.css'),
     'GET /tv/player.js': webCore('player.js'),
     'GET /tv/config.js': webCore('config.js'),
+    'GET /tv/cache.js': webCore('cache.js'),
     'GET /tv/ads.json': tvManifest,
   };
   const CONTENT = /^\/api\/ads\/([^/]+)\/content$/;

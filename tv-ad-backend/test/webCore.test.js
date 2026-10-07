@@ -6,10 +6,12 @@ import { loadConfig } from '../src/config.js';
 const dir = loadConfig({ DRIVE_API_KEY: 'k' }).webCoreDir;
 const read = (name) => readFile(new URL(name, `file://${dir}`.replace(/\/?$/, '/')), 'utf8');
 
-test('web-core player is plain ES5 (old webOS browsers) and parses', async () => {
-  const js = await read('player.js');
-  assert.doesNotMatch(js, /=>|\blet\b|\bconst\b|`|padStart|\.\.\./);
-  assert.doesNotThrow(() => new Function(js));
+test('web-core scripts are plain ES5 (old TV browsers) and parse', async () => {
+  for (const file of ['player.js', 'cache.js']) {
+    const js = await read(file);
+    assert.doesNotMatch(js, /=>|\blet\b|\bconst\b|`|padStart|\.\.\./, file);
+    assert.doesNotThrow(() => new Function(js), file);
+  }
   const cfg = await read('config.js');
   assert.doesNotMatch(cfg, /=>|\blet\b|\bconst\b|`/);
   assert.doesNotThrow(() => new Function('window', cfg));
@@ -28,6 +30,8 @@ test('index.html loads its files by relative path (so a packaged TV app can bund
   assert.match(html, /href="app\.css"/);
   assert.match(html, /src="config\.js"/);
   assert.match(html, /src="player\.js"/);
+  assert.match(html, /src="cache\.js"/);
+  assert.ok(html.indexOf('cache.js') < html.indexOf('player.js'), 'cache.js loads first');
   assert.doesNotMatch(html, /(href|src)="\/(?!\/)/, 'no root-absolute paths');
 });
 

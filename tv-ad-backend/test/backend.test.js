@@ -341,7 +341,7 @@ test('web-core files are served at /tv/, unknown files and path tricks are refus
   const redirect = await fetch(`${env.base}/tv`, { redirect: 'manual' });
   assert.equal(redirect.status, 302);
   assert.equal(redirect.headers.get('location'), '/tv/');
-  for (const [file, type] of [['', /text\/html/], ['index.html', /text\/html/], ['app.css', /text\/css/], ['player.js', /javascript/], ['config.js', /javascript/]]) {
+  for (const [file, type] of [['', /text\/html/], ['index.html', /text\/html/], ['app.css', /text\/css/], ['player.js', /javascript/], ['config.js', /javascript/], ['cache.js', /javascript/]]) {
     const res = await fetch(`${env.base}/tv/${file}`);
     assert.equal(res.status, 200, file);
     assert.match(res.headers.get('content-type'), type);
