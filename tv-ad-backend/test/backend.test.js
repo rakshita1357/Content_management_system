@@ -559,3 +559,43 @@ test('health reports sync state without exposing details; three failures in a ro
   assert.equal(env.sync.getManifest().ads.length, 3, 'ads keep being served while Drive is failing');
   assert.equal((await fetch(`${env.base}/tv/ads.json`)).status, 200);
 });
+
+test('the connected folder keeps working without Drive: the same link opens the saved ads, other links and real problems still show', async (t) => {
+  const env = await setupFast(); t.after(env.close);
+  await env.sync.sync();
+  const before = env.sync.getManifest().revision;
+  await new Promise((r) => { env.google.server.closeAllConnections?.(); env.google.server.close(r); });   // Drive/internet is gone
+
+  const check = await (await post(env, '/api/source/check', { link: FOLDER_LINK(ROOT_ID) })).json();
+  assert.equal(check.same, true);
+  assert.equal(check.offline, true);
+  assert.equal(check.requiresConfirm, false);
+  assert.equal(check.summary.totalAds, 3);
+  assert.match(check.warnings[0], /could not be reached/);
+
+  const res = await post(env, '/api/source', { link: ROOT_ID });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.unchanged, true);
+  assert.ok(body.syncError, 'the failed sync is reported, not hidden');
+  assert.equal(env.sync.getManifest().revision, before, 'the saved list is untouched');
+  assert.equal((await fetch(`${env.base}/tv/ads.json`)).status, 200);
+
+  // a different link cannot be checked without Drive: clear error, nothing changes
+  const other = await post(env, '/api/source', { link: FOLDER_LINK('SOME_OTHER_FOLDER_123456'), replace: true });
+  assert.equal(other.status, 502);
+  assert.match((await other.json()).error, /Cannot reach Google Drive|did not answer/);
+  assert.equal(env.sync.getSource().folderId, ROOT_ID);
+});
+
+test('the same link still reports a real problem (the folder was deleted or access was removed), and keeps the saved ads', async (t) => {
+  const env = await setup(); t.after(env.close);
+  await env.sync.sync();
+  const before = env.sync.getManifest().revision;
+  env.google.server.rootGone = true;
+  const res = await post(env, '/api/source', { link: ROOT_ID });
+  assert.equal(res.status, 404);
+  assert.match((await res.json()).error, /cannot open this folder/);
+  assert.equal(env.sync.getManifest().revision, before, 'the saved ads are not removed');
+  assert.equal(env.sync.getSource().folderId, ROOT_ID);
+});

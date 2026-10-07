@@ -105,3 +105,47 @@ t('TEST 19: the Android app has its page built in, so it does not reload when th
   await app.waitForTimeout(1500);
   assert.equal(await app.evaluate(() => window.__old === true), true, 'not reloaded');
 });
+
+t('TEST 20: after the link was processed, no Drive/internet is needed: a new tab and the same link both open the saved ads', { source: '' }, async (env) => {
+  const front = await env.context.newPage();
+  await front.goto(env.backend.base + '/');
+  await front.fill('#link', 'https://drive.google.com/drive/folders/DRIVE_A_ROOT_FOLDER_1234?usp=sharing');
+  await front.click('#go');
+  await front.waitForURL('**/tv/');
+  await front.waitForSelector('#rows tr');
+  await page.waitSaved(front, 3);
+
+  await new Promise((r) => { env.google.server.closeAllConnections?.(); env.google.server.close(r); });   // Drive is unreachable from now on
+
+  // a brand-new tab: opens, shows the saved list, plays from the saved files, downloads nothing
+  const tab = await env.context.newPage();
+  const downloads = [];
+  page.contentRequests(tab, downloads);
+  await tab.goto(env.backend.base + '/tv/');
+  await tab.waitForSelector('#rows tr');
+  assert.deepEqual((await page.rows(tab)).map((r) => r.cache), ['Saved', 'Saved', 'Saved']);
+  await page.start(tab);
+  await tab.waitForSelector('#stage img, #stage video');
+  assert.equal((await page.playing(tab)).cached, true);
+  assert.deepEqual(downloads, []);
+
+  // the SAME link again: goes straight to the TV page instead of an error
+  const same = await env.context.newPage();
+  await same.goto(env.backend.base + '/');
+  await same.fill('#link', 'https://drive.google.com/drive/folders/DRIVE_A_ROOT_FOLDER_1234');
+  await same.click('#go');
+  await same.waitForURL('**/tv/', { timeout: 15000 });
+  await same.waitForSelector('#rows tr');
+  assert.equal((await page.rows(same)).length, 3);
+
+  // another folder cannot be checked without Drive: a clear error and nothing is removed
+  const other = await env.context.newPage();
+  await other.goto(env.backend.base + '/');
+  await other.fill('#link', 'https://drive.google.com/drive/folders/DRIVE_B_ROOT_FOLDER_12');
+  await other.click('#go');
+  await other.waitForSelector('#msg.bad', { timeout: 15000 });
+  assert.match(await other.innerText('#msg'), /Cannot reach Google Drive|did not answer/);
+  assert.equal(await other.isVisible('#overlay'), false);
+  assert.equal(env.backend.sync.getSource().folderName, 'Drive A');
+  assert.equal((await page.db(front)).keys.length, 3);
+});

@@ -25,6 +25,7 @@ Tip for quick testing: put `IMAGE_DURATION_SEC=5` in `tv-ad-backend/.env` (the r
 | Paste a file link, a non-Drive link, or a made-up folder ID | A red message with a "Fix:" hint. Nothing changes. |
 | Put a file directly in the root, a `.pdf` in a subfolder, and an `.mp4`, `.jpg`, `.png` in subfolders | Only subfolder files of type MP4, JPG/JPEG, PNG are ads. The rest are listed under "Found in Drive but not playing". |
 | Submit the **same** folder again | No dialog, nothing re-downloaded, just a sync. |
+| Submit the **same** folder again while the backend has **no Drive/internet** | Goes straight to `/tv/` and plays the saved ads (no error). A **different** link in that state shows "Cannot reach Google Drive" and changes nothing. |
 | Submit a **different** valid folder | Dialog "Change Drive folder?". **Cancel** = nothing changes. **Change & Remove** = switches. |
 | Replace a working folder with an **empty** one | Refused ("no supported ads"), old ads kept. |
 
@@ -113,8 +114,8 @@ See `deploy/README.md` (systemd, Windows/NSSM, Docker, https, backups, updating)
 ## 11. Automated tests
 ```
 cd tv-ad-backend
-npm test               # 74 backend tests, no internet needed
-npm run test:browser   # 20 real-browser tests (needs Playwright + ffmpeg, skipped otherwise)
+npm test               # 76 backend tests, no internet needed
+npm run test:browser   # 21 real-browser tests (needs Playwright + ffmpeg, skipped otherwise)
 ```
 
 ## Not checked by anyone yet

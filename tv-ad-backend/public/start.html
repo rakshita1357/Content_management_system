@@ -91,7 +91,7 @@ function confirmChange(check) {
 
 async function load(link, replace) {
   const body = await post('/api/source', { link, replace });
-  if (body.syncError) throw Object.assign(new Error(`The folder was found, but loading the ads failed: ${body.syncError.message}`), { hint: body.syncError.hint });
+  if (body.syncError && !body.unchanged) throw Object.assign(new Error(`The folder was found, but loading the ads failed: ${body.syncError.message}`), { hint: body.syncError.hint });
   if (!body.summary.totalAds) {
     say('info', [`Connected to "${body.source.folderName}", but there are no ads in it yet.`, ...body.warnings, 'Add MP4, JPG or PNG files inside subfolders of that folder, then submit the link again.']);
     return false;

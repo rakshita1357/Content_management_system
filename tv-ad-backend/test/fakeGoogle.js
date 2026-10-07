@@ -41,6 +41,7 @@ export function startFakeGoogle({ apiKey, root, children, rootId, publicVisible 
     if (req.method === 'GET' && url.pathname.startsWith('/drive/v3/files/')) {
       if (url.searchParams.get('key') !== apiKey && !authed(req)) return json(res, 401, { error: { message: 'Invalid Credentials' } });
       const id = url.pathname.split('/').pop();
+      if (id === rootId && server.rootGone) return json(res, 404, { error: { message: 'File not found' } });
       if (id === rootId) return json(res, 200, { id, name: rootName, mimeType: FOLDER, trashed: false, capabilities: { canAddChildren: !readOnly } });
       const f = files.get(id);
       if (!f) return json(res, 404, { error: { message: 'File not found' } });
