@@ -85,7 +85,10 @@ If IndexedDB is blocked (some private modes), the page streams from the backend 
 
 **Tests:** `npm test` (backend, fake Drive) and `npm run test:browser` (a real headless Chromium against the real backend and a fake Drive: caching, offline play, restarts, folder change, failed downloads, incremental updates). The browser tests need Playwright (`PLAYWRIGHT_MODULE=/path/to/playwright`) and ffmpeg; they skip themselves without them.
 
-## Trying it on an Android TV
+## Android TV app
+`../wrappers/androidtv/` is a thin Android app around this same `web-core/` page: it opens even when the backend is down, plays with sound without a key press, keeps the screen awake and can start when the TV switches on. See its README for building and installing.
+
+## Trying it on an Android TV (browser)
 1. Put the TV and the computer running the backend on the same Wi-Fi/network.
 2. Run `npm start`. The log prints a line like `Open this on the TV (same Wi-Fi/network): http://192.168.1.20:8080/tv/`. On Windows, allow Node.js through the firewall for private networks when asked.
 3. On the computer, open `http://localhost:8080/`, paste the Drive folder link and press Submit.

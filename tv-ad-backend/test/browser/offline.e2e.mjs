@@ -296,3 +296,26 @@ test('TEST 14: internet returns after offline play -> it syncs, saves the new ad
   await p.waitForFunction(() => document.querySelectorAll('#rows tr').length === 4, null, { timeout: 15000 });   // switches between two ads
   assert.deepEqual(requests, ['A_AD4_FILE_1234567']);
 });
+
+test('TEST 15: the hooks used by the Android TV app: native Back is offered to the player, Server address button appears', { skip: ready ? false : 'needs Playwright and ffmpeg', timeout: 90000 }, async (ctx) => {
+  const env = await createEnv();
+  ctx.after(() => env.close());
+  const plain = await open(env);
+  assert.equal(await plain.isVisible('#change-server'), false, 'a normal browser has no Server address button');
+  await plain.close();
+
+  const app = await env.context.newPage();
+  await app.addInitScript(() => { window.__changed = 0; window.TVNative = { changeServer() { window.__changed++; } }; });
+  await app.goto(env.shell.base + '/');
+  await app.waitForSelector('#rows tr');
+  await page.waitSaved(app, 3);
+  assert.equal(await app.isVisible('#change-server'), true);
+  await app.click('#change-server');
+  assert.equal(await app.evaluate(() => window.__changed), 1);
+  assert.equal(await app.evaluate(() => window.TV_NATIVE_BACK()), false, 'not playing: Back is not consumed');
+  await page.start(app);
+  await app.waitForSelector('#stage img, #stage video');
+  assert.equal(await app.evaluate(() => window.TV_NATIVE_BACK()), true, 'playing: Back returns to the table');
+  assert.equal(await app.isVisible('#player-root'), false);
+  assert.equal(await app.isVisible('#board'), true);
+});

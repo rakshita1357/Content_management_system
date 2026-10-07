@@ -145,7 +145,11 @@
     function fullscreen(on) {
       try {
         var d = document, r = d.documentElement;
-        if (on) { (r.requestFullscreen || r.webkitRequestFullscreen || r.mozRequestFullScreen || function () {}).call(r); }
+        if (on) {
+          var req = r.requestFullscreen || r.webkitRequestFullscreen || r.mozRequestFullScreen;
+          var p = req && req.call(r);
+          if (p && p.catch) p.catch(function () {});   // refused (no key press yet, or inside an app WebView): not an error
+        }
         else if (d.fullscreenElement || d.webkitFullscreenElement) { (d.exitFullscreen || d.webkitExitFullscreen).call(d); }
       } catch (e) {}
     }
@@ -299,6 +303,13 @@
     $('player-root').onclick = function (e) { if (e.target !== $('exit')) userGesture(); };
 
     $('change-folder').href = API + '/';
+    // Inside the Android TV app a native bridge exists: the Back key is offered to the player first, and the
+    // server address of the app can be changed from here.
+    window.TV_NATIVE_BACK = function () { if (active) { stopPlayer(); return true; } return false; };
+    if (window.TVNative && window.TVNative.changeServer) {
+      $('change-server').hidden = false;
+      $('change-server').onclick = function () { window.TVNative.changeServer(); };
+    }
     $('sync-now').onclick = function () {
       var b = $('sync-now'), x = new XMLHttpRequest();
       b.disabled = true; b.firstChild.nodeValue = 'Syncing';

@@ -1,0 +1,50 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.tvads.player'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.tvads.player'
+        minSdk 21          // Android 5.0, the first Android TV release
+        targetSdk 34
+        versionCode 1
+        versionName '0.1.0'
+        // Address of the ad server, if you want it built in (see gradle.properties). Can also be typed on the TV.
+        buildConfigField 'String', 'DEFAULT_SERVER', "\"${providers.gradleProperty('tvads.defaultServer').getOrElse('')}\""
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    sourceSets {
+        main {
+            // The TV page is NOT copied into this project: it is the repo's web-core/ folder, copied in at build time.
+            assets.srcDir "${layout.buildDirectory.get().asFile}/generated/webcore"
+        }
+    }
+}
+
+def syncWebCore = tasks.register('syncWebCore', Sync) {
+    from "${rootDir}/../../web-core"
+    into "${layout.buildDirectory.get().asFile}/generated/webcore/web"
+}
+tasks.matching { it.name ==~ /(merge.*Assets|.*[Ll]int.*)/ }.configureEach { dependsOn syncWebCore }
+
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+}
