@@ -33,5 +33,5 @@ try {
 } catch (err) {
   console.error(`Scan failed: ${err.message}`);
   if (err.hint) console.error(`Fix: ${err.hint}`);
-  process.exit(1);
+  process.exitCode = 1;   // not process.exit(): see scripts/doctor.js
 }

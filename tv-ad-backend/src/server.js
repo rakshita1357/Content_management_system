@@ -81,7 +81,7 @@ server.on('error', async (err) => {
   } else {
     log.error(`Cannot start: ${err.message}`);
   }
-  process.exit(1);
+  process.exitCode = 1;   // not process.exit(): it may run right after a network probe (Windows can print a libuv assertion)
 });
 server.listen(config.port, host, () => {
   log.info(`TV ads backend ${appVersion} listening on ${scheme}://${host}:${config.port}`);
@@ -105,7 +105,9 @@ server.listen(config.port, host, () => {
 const shutdown = () => {
   log.info('Stopping.');
   sync.stop();
-  server.close(() => process.exit(0));
+  // Let the program end by itself once connections are closed (process.exit() right after network use can print a
+  // libuv assertion on Windows); the timer is only a safety net if something keeps it alive.
+  server.close(() => { process.exitCode = 0; });
   server.closeAllConnections?.();
   setTimeout(() => process.exit(0), 3000).unref();
 };

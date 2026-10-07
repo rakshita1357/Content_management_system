@@ -22,4 +22,6 @@ for (const r of results) {
 const failed = results.filter((r) => r.level === 'fail').length;
 const warned = results.filter((r) => r.level === 'warn').length;
 console.log(failed ? `\n${failed} problem${failed === 1 ? '' : 's'} to fix.` : warned ? `\nReady, with ${warned} thing${warned === 1 ? '' : 's'} to look at.` : '\nAll good.');
-process.exit(failed ? 1 : 0);
+// Not process.exit(): on Windows, exiting while network connections are still closing can print a Node/libuv
+// "Assertion failed ... async.c" message. Setting the exit code lets the program end by itself a moment later.
+process.exitCode = failed ? 1 : 0;
