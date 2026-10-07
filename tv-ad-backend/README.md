@@ -18,7 +18,7 @@ streams the media to the TV. `DRIVE_API_KEY` is only an optional fallback for a 
 ## Commands
 | Command | What it does |
 | --- | --- |
-| `npm run scan` | Read-only check of the folder. Writes `data/ads.preview.json` and `data/index.preview.html`. |
+| `npm run scan` | Read-only check of the folder. Writes `data/ads.preview.json`. |
 | `npm run auth` | One-time Google sign-in that prints `GOOGLE_REFRESH_TOKEN`. |
 | `npm start` | Starts the backend and the admin page, and syncs every `SYNC_INTERVAL_SEC`. |
 | `npm test` | Unit and end-to-end tests against a fake Drive. No internet needed. |
@@ -65,7 +65,7 @@ The TV page is a set of plain static files in `../web-core/` (`index.html`, `app
 src/config.js                  settings from .env, supported formats
 src/drive/publicReader.js      lists folders and streams media (OAuth, or API key fallback)
 src/drive/oauth.js             refresh token -> access token
-src/drive/writer.js            creates folders, overwrites ads.json/index.html, streams uploads
+src/drive/writer.js            creates folders, overwrites the ads.json copy, streams uploads
 src/manifest/buildManifest.js  Drive listing -> ads.json (pure function)
 src/manifest/validate.js       checks ads.json before publishing
 src/services/syncService.js    scan, compare revision, publish, 5-minute timer
