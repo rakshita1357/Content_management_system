@@ -172,6 +172,7 @@ function showNotices(status) {
     box.append(div);
   };
   if (status.lastError) add('bad', [`Last sync failed: ${status.lastError.message}`, status.lastError.hint && `Fix: ${status.lastError.hint}`]);
+  if (status.fromDisk) add('info', ['Showing the last saved ad list. Drive has not been reached since the backend started.']);
   if (status.warning) add('bad', [status.warning]);
   if (status.publishing.reason) add('info', [status.publishing.reason]);
 }
@@ -205,6 +206,7 @@ function renderStatus(s) {
     parts.push(`${s.summary.totalAds} ads, revision ${s.revision}${s.publishing.enabled ? (live ? ' is live on the TV page and saved to Drive' : ' is live on the TV page (Drive copy not updated)') : ' is live on the TV page'}.`);
   } else parts.push('Waiting for the first scan.');
   if (s.lastScanAt) parts.push(`Checked ${time(s.lastScanAt)}.`);
+  if (s.lastChange) parts.push(`Last change ${time(s.lastChange.at)}: ${s.lastChange.added} added, ${s.lastChange.modified} changed, ${s.lastChange.removed} removed.`);
   if (s.nextSyncAt) parts.push(`Next check ${time(s.nextSyncAt)}.`);
   $('#status-line').textContent = parts.join(' ');
   $('#ad-folders').replaceChildren(...(s.summary?.adFolders || []).map((name) => Object.assign(document.createElement('option'), { value: name })));

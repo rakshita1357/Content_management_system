@@ -107,7 +107,7 @@ export function createApp({ config, sync, uploads, sources, reader, log = consol
   // What the TV needs, without the admin login.
   const publicRoutes = {
     'GET /healthz': (req, res) => sendJson(res, 200, { ok: true }),
-    'GET /api/health': (req, res) => sendJson(res, 200, { ok: true }),
+    'GET /api/health': (req, res) => sendJson(res, 200, sync.getHealth()),
     'GET /tv': (req, res) => { res.writeHead(302, { Location: '/tv/' }); res.end(); },
     'GET /tv/': webCore('index.html'),
     'GET /tv/index.html': webCore('index.html'),

@@ -1,4 +1,5 @@
 import { AppError, driveError } from '../lib/errors.js';
+import { createGoogleFetch } from '../lib/googleFetch.js';
 
 // Lists Drive folders. By default it uses the API key only (exactly the access the TV has).
 // When a token provider is passed and OAuth is configured, listChildren() authenticates as the
@@ -9,7 +10,8 @@ const FIELDS = [
     + 'videoMediaMetadata(width,height,durationMillis),imageMediaMetadata(width,height))',
 ].join(',');
 
-export function createPublicReader({ apiKey, urls }, tokens = null, fetchImpl = fetch) {
+export function createPublicReader({ apiKey, urls, google }, tokens = null, fetchImpl = fetch) {
+  const gfetch = createGoogleFetch(google, fetchImpl);
   const useOAuth = Boolean(tokens?.isConfigured());
 
   async function list(folderId, oauth) {
@@ -26,7 +28,7 @@ export function createPublicReader({ apiKey, urls }, tokens = null, fetchImpl = 
       if (!oauth) params.set('key', apiKey);
       if (pageToken) params.set('pageToken', pageToken);
       const init = oauth ? { headers: { Authorization: `Bearer ${await tokens.getAccessToken()}` } } : undefined;
-      const res = await fetchImpl(`${urls.driveApi}/files?${params}`, init);
+      const res = await gfetch(`${urls.driveApi}/files?${params}`, init);
       if (!res.ok) throw await driveError(res, 'list the folder');
       const body = await res.json();
       files.push(...(body.files || []));
@@ -40,7 +42,7 @@ export function createPublicReader({ apiKey, urls }, tokens = null, fetchImpl = 
     const headers = {};
     if (useOAuth) headers.Authorization = `Bearer ${await tokens.getAccessToken()}`;
     else params.set('key', apiKey);
-    const res = await fetchImpl(`${urls.driveApi}/files/${encodeURIComponent(folderId)}?${params}`, { headers });
+    const res = await gfetch(`${urls.driveApi}/files/${encodeURIComponent(folderId)}?${params}`, { headers });
     if (res.status === 404 || res.status === 403) {
       throw new AppError(404, 'Google Drive cannot open this folder with the account the backend uses.',
         useOAuth
@@ -58,7 +60,7 @@ export function createPublicReader({ apiKey, urls }, tokens = null, fetchImpl = 
     const params = new URLSearchParams({ alt: 'media', supportsAllDrives: 'true' });
     if (useOAuth) headers.Authorization = `Bearer ${await tokens.getAccessToken()}`;
     else params.set('key', apiKey);
-    const res = await fetchImpl(`${urls.driveApi}/files/${encodeURIComponent(fileId)}?${params}`, { headers, signal });
+    const res = await gfetch(`${urls.driveApi}/files/${encodeURIComponent(fileId)}?${params}`, { headers, signal });
     if (!res.ok && res.status !== 416) throw await driveError(res, 'read the media file');
     return res;
   }

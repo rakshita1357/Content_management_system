@@ -47,6 +47,14 @@ The TV page is a set of plain static files in `../web-core/` (`index.html`, `app
 - Keep `player.js`, `cache.js` and `config.js` plain ES5 (no arrow functions, `let`/`const`, template strings); a test enforces it for old webOS browsers.
 - If you deploy only the `tv-ad-backend` folder, point `WEB_CORE_DIR` at a copy of `web-core/`.
 
+## How the sync copes with problems
+- **Timeouts and retries:** every call to Google gives up after 30 seconds (`GOOGLE_TIMEOUT_MS`) instead of hanging the sync. Network errors, HTTP 429 and 5xx are repeated up to 3 times with growing waits (`GOOGLE_RETRIES`, `GOOGLE_RETRY_BASE_MS`). Uploads and "create" calls are never repeated, so nothing is created twice. A network failure shows as "Cannot reach Google Drive" with a hint instead of "fetch failed".
+- **Retry soon after a failure:** after a failed sync the next try is in 30 s, then 1 min, 2 min and so on, never later than the normal interval (`SYNC_INTERVAL_SEC`). One success resets it.
+- **A strange empty answer is not trusted at once:** if Drive suddenly returns no ads while ads were known, the previous list stays for one more check and the admin page warns. If the next scan is also empty it is believed. "Sync now" is always trusted. This stops a Drive hiccup from making every TV delete its saved ads.
+- **The last good list survives a restart:** `data/manifest.json` is written after every change (write to a temp file, then rename, so a power cut cannot leave half a file). If Drive or the internet is down when the backend starts, `/tv/ads.json` still serves that list and the admin page says so. A failed scan never replaces the list.
+- **What changed:** each new revision is compared with the previous one by Drive file id and shown as "N added, N changed, N removed" in the admin page, status and log.
+- **Health:** `GET /api/health` (no login) returns `ok`, `needsSetup`, `ads`, `revision`, `lastSuccessAt` and `syncOk`. `syncOk` turns false after three failed syncs in a row, which is a good thing to monitor. `GET /api/status` (admin) has the details: `failures`, `lastError`, `lastChange`, `fromDisk`.
+
 ## Offline play (`web-core/cache.js`)
 The TV page saves every ad's file in the browser's IndexedDB and plays the saved copy, so ads keep running when the backend or the network goes away.
 - **Saving:** after the ad list loads, files are downloaded one at a time in play order. The table's **Offline** column shows Saved, a percentage, Waiting, No space or Will retry, and the header shows "Saved for offline play: 12 of 14 ads (350 MB)".

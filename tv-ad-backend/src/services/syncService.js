@@ -1,7 +1,14 @@
 import { FOLDER_MIME, PUBLISHED_FILES } from '../config.js';
 import { AppError } from '../lib/errors.js';
-import { buildManifest } from '../manifest/buildManifest.js';
+import { buildManifest, diffManifests } from '../manifest/buildManifest.js';
 import { validateManifest } from '../manifest/validate.js';
+
+// After a failed sync, try again soon (30 s, 1 min, 2 min, ...) instead of waiting the whole interval.
+export function nextDelayMs(failures, intervalSec) {
+  const full = intervalSec * 1000;
+  if (!failures) return full;
+  return Math.min(full, 30_000 * 2 ** (failures - 1));
+}
 
 /**
  * Scan Drive -> build ads.json -> publish to Drive only if the revision changed.
@@ -16,6 +23,11 @@ export function createSyncService({ config, reader, writer, store, log = console
     publishedRevision: null,
     source: null, // { folderId, folderName, canWrite } the ads are read from
     lastError: null,
+    lastSuccessAt: null,
+    failures: 0,          // consecutive failed syncs
+    emptyStreak: 0,       // consecutive scans that found no ads while ads were known
+    lastChange: null,     // { at, revision, added, modified, removed }
+    fromDisk: false,      // the ad list was restored from disk and not yet confirmed by a scan
     warning: null,
     manifest: null,
   };
@@ -62,6 +74,12 @@ export function createSyncService({ config, reader, writer, store, log = console
     // A folder chosen in the admin page wins over DRIVE_FOLDER_ID in .env.
     state.source = saved.source
       || (config.rootFolderId ? { folderId: config.rootFolderId, folderName: null, canWrite: Boolean(writer) } : null);
+    // Serve the last good ad list straight away, even if Drive or the internet is down right now.
+    const kept = state.source ? await store.loadManifest() : null;
+    if (kept && kept.source?.folderId === state.source.folderId && Array.isArray(kept.ads)) {
+      state.manifest = kept;
+      state.fromDisk = true;
+    }
   }
 
   const persist = () => store.save({ publishedRevision: state.publishedRevision, lastPublishAt: state.lastPublishAt, source: state.source });
@@ -71,8 +89,13 @@ export function createSyncService({ config, reader, writer, store, log = console
     state.source = source;
     state.publishedRevision = null;
     state.manifest = null;
+    state.fromDisk = false;
+    state.emptyStreak = 0;
+    state.failures = 0;
+    state.lastChange = null;
     state.warning = null;
     state.lastError = null;
+    await store.saveManifest(null);
     await persist();
   }
 
@@ -86,8 +109,31 @@ export function createSyncService({ config, reader, writer, store, log = console
       state.running = true;
       try {
         const manifest = await scan();
-        state.manifest = manifest;
         state.lastScanAt = now().toISOString();
+
+        // A scan that suddenly finds nothing is more likely a Drive hiccup than every ad being deleted, and
+        // acting on it would make TVs throw away their saved files. Keep the old list until a second scan agrees
+        // ("Sync now" is a deliberate request and is trusted at once).
+        const previous = state.manifest;
+        if (!force && previous?.ads.length && !manifest.ads.length && state.emptyStreak < 1) {
+          state.emptyStreak++;
+          state.warning = 'Drive returned no ads this time. The previous list is kept until the next check confirms it.';
+          state.lastError = null;
+          state.failures = 0;
+          state.lastSuccessAt = now().toISOString();
+          log.info(`[sync:${reason}] 0 ads found but ${previous.ads.length} were known: keeping the previous list until the next check`);
+          return { revision: previous.revision, changed: false, published: false, totalAds: previous.ads.length, skipped: previous.skipped.length, heldBack: true };
+        }
+        state.emptyStreak = 0;
+
+        const delta = diffManifests(previous, manifest);
+        const changedList = manifest.revision !== previous?.revision;
+        state.manifest = manifest;
+        state.fromDisk = false;
+        if (changedList) {
+          if (previous) state.lastChange = { at: now().toISOString(), revision: manifest.revision, ...delta };
+          await store.saveManifest(manifest);
+        }
 
         const changed = manifest.revision !== state.publishedRevision;
         let published = false;
@@ -107,9 +153,13 @@ export function createSyncService({ config, reader, writer, store, log = console
           }
         }
         state.lastError = null;
-        log.info(`[sync:${reason}] ${manifest.summary.totalAds} ads, revision ${manifest.revision}, ${published ? 'published to Drive' : changed ? 'new revision' : 'unchanged'}`);
+        state.failures = 0;
+        state.lastSuccessAt = now().toISOString();
+        const what = changedList && previous ? ` (+${delta.added} added, ${delta.modified} changed, -${delta.removed} removed)` : '';
+        log.info(`[sync:${reason}] ${manifest.summary.totalAds} ads, revision ${manifest.revision}, ${published ? 'published to Drive' : changed ? 'new revision' : 'unchanged'}${what}`);
         return { revision: manifest.revision, changed, published, totalAds: manifest.summary.totalAds, skipped: manifest.skipped.length };
       } catch (err) {
+        state.failures++;
         state.lastError = { message: err.message, hint: err.hint || null, at: now().toISOString() };
         log.error(`[sync:${reason}] failed: ${err.message}${err.hint ? ` (${err.hint})` : ''}`);
         throw err;
@@ -121,8 +171,9 @@ export function createSyncService({ config, reader, writer, store, log = console
 
   function start() {
     const tick = () => {
-      state.nextSyncAt = new Date(Date.now() + config.syncIntervalSec * 1000).toISOString();
-      timer = setTimeout(() => sync().catch(() => {}).finally(tick), config.syncIntervalSec * 1000);
+      const wait = nextDelayMs(state.failures, config.syncIntervalSec);
+      state.nextSyncAt = new Date(Date.now() + wait).toISOString();
+      timer = setTimeout(() => sync().catch(() => {}).finally(tick), wait);
     };
     sync({ reason: 'startup' }).catch(() => {}).finally(tick);
   }
@@ -136,6 +187,10 @@ export function createSyncService({ config, reader, writer, store, log = console
     return {
       running: state.running,
       lastScanAt: state.lastScanAt,
+      lastSuccessAt: state.lastSuccessAt,
+      failures: state.failures,
+      lastChange: state.lastChange,
+      fromDisk: state.fromDisk,
       lastPublishAt: state.lastPublishAt,
       nextSyncAt: state.nextSyncAt,
       needsSetup: !state.source,
@@ -165,5 +220,13 @@ export function createSyncService({ config, reader, writer, store, log = console
     stop,
     getStatus,
     getManifest: () => state.manifest,
+    getHealth: () => ({
+      ok: true,
+      needsSetup: !state.source,
+      ads: state.manifest?.ads.length ?? 0,
+      revision: state.manifest?.revision ?? null,
+      lastSuccessAt: state.lastSuccessAt,
+      syncOk: state.failures < 3,   // false after three failed syncs in a row
+    }),
   };
 }
