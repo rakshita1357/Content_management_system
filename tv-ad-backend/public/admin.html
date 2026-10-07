@@ -163,6 +163,7 @@ function showNotices(status) {
     box.append(div);
   };
   if (status.lastError) add('bad', [`Last sync failed: ${status.lastError.message}`, status.lastError.hint && `Fix: ${status.lastError.hint}`]);
+  if (status.warning) add('bad', [status.warning]);
   if (!status.publishing.enabled) add('info', [status.publishing.reason]);
 }
 

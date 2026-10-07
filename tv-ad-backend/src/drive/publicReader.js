@@ -1,14 +1,19 @@
 import { driveError } from '../lib/errors.js';
 
-// Reads the public folder with the API key only: exactly the access the TV will have.
+// Lists Drive folders. By default it uses the API key only (exactly the access the TV has).
+// When a token provider is passed and OAuth is configured, listChildren() authenticates as the
+// signed-in Google account instead, so a PRIVATE folder is scanned correctly. listChildrenPublic()
+// always uses the API key, to check what the TV can really see.
 const FIELDS = [
   'nextPageToken',
   'files(id,name,mimeType,size,md5Checksum,createdTime,modifiedTime,'
     + 'videoMediaMetadata(width,height,durationMillis),imageMediaMetadata(width,height))',
 ].join(',');
 
-export function createPublicReader({ apiKey, urls }, fetchImpl = fetch) {
-  async function listChildren(folderId) {
+export function createPublicReader({ apiKey, urls }, tokens = null, fetchImpl = fetch) {
+  const useOAuth = Boolean(tokens?.isConfigured());
+
+  async function list(folderId, oauth) {
     const files = [];
     let pageToken;
     do {
@@ -18,10 +23,11 @@ export function createPublicReader({ apiKey, urls }, fetchImpl = fetch) {
         pageSize: '1000',
         supportsAllDrives: 'true',
         includeItemsFromAllDrives: 'true',
-        key: apiKey,
       });
+      if (!oauth) params.set('key', apiKey);
       if (pageToken) params.set('pageToken', pageToken);
-      const res = await fetchImpl(`${urls.driveApi}/files?${params}`);
+      const init = oauth ? { headers: { Authorization: `Bearer ${await tokens.getAccessToken()}` } } : undefined;
+      const res = await fetchImpl(`${urls.driveApi}/files?${params}`, init);
       if (!res.ok) throw await driveError(res, 'list the folder');
       const body = await res.json();
       files.push(...(body.files || []));
@@ -29,5 +35,9 @@ export function createPublicReader({ apiKey, urls }, fetchImpl = fetch) {
     } while (pageToken);
     return files;
   }
-  return { listChildren };
+  return {
+    usesOAuth: useOAuth,
+    listChildren: (folderId) => list(folderId, useOAuth),
+    listChildrenPublic: (folderId) => list(folderId, false),
+  };
 }

@@ -16,6 +16,7 @@ export function createSyncService({ config, reader, writer, store, log = console
     nextSyncAt: null,
     publishedRevision: null,
     lastError: null,
+    warning: null,
     manifest: null,
     indexHtml: null,
   };
@@ -48,6 +49,19 @@ export function createSyncService({ config, reader, writer, store, log = console
     return manifest;
   }
 
+  // The scan may run as the signed-in account (private folder OK), but the TV only has the API key.
+  // If the key sees fewer items in the root than the account does, tell the admin the folder is not public.
+  async function checkTvAccess(manifest) {
+    if (!reader.usesOAuth || !reader.listChildrenPublic) return null;
+    const expected = manifest.summary.adFolders.length + manifest.skipped.filter((s) => !s.adName).length;
+    if (!expected) return null;
+    try {
+      const visible = await reader.listChildrenPublic(config.rootFolderId);
+      if (visible.length) return null;
+    } catch { /* fall through to the warning */ }
+    return 'The TV cannot see this Drive folder. In Drive, share it as "Anyone with the link: Viewer", otherwise the TV will not be able to load ads.';
+  }
+
   function publishingStatus() {
     if (!config.publishToDrive) return { enabled: false, reason: 'PUBLISH_TO_DRIVE is false: preview only.' };
     if (!writer) return { enabled: false, reason: 'OAuth is not set up yet, so nothing is written to Drive. See step 5.' };
@@ -68,6 +82,7 @@ export function createSyncService({ config, reader, writer, store, log = console
         state.manifest = manifest;
         state.indexHtml = renderIndexHtml(manifest);
         state.lastScanAt = now().toISOString();
+        state.warning = await checkTvAccess(manifest);
 
         const changed = manifest.revision !== state.publishedRevision;
         let published = false;
@@ -116,6 +131,7 @@ export function createSyncService({ config, reader, writer, store, log = console
       publishedRevision: state.publishedRevision,
       publishing: publishingStatus(),
       lastError: state.lastError,
+      warning: state.warning,
       summary: state.manifest?.summary || null,
       settings: {
         imageDurationSec: config.imageDurationSec,

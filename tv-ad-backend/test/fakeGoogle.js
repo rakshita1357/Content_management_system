@@ -2,7 +2,7 @@
 import http from 'node:http';
 import { FOLDER } from './fixtures.js';
 
-export function startFakeGoogle({ apiKey, root, children, rootId }) {
+export function startFakeGoogle({ apiKey, root, children, rootId, publicVisible = true }) {
   const files = new Map();
   const add = (f, parent) => files.set(f.id, { ...f, parents: [parent], trashed: false });
   root.forEach((f) => add(f, rootId));
@@ -23,6 +23,8 @@ export function startFakeGoogle({ apiKey, root, children, rootId }) {
 
     if (req.method === 'GET' && url.pathname === '/drive/v3/files') {
       if (url.searchParams.get('key') !== apiKey && !authed(req)) return json(res, 400, { error: { message: 'API key not valid. Please pass a valid API key.' } });
+      // A private folder looks empty to API-key requests (that is what real Drive does).
+      if (!publicVisible && !authed(req)) return json(res, 200, { files: [] });
       const q = url.searchParams.get('q');
       const parent = q.match(/'([^']+)' in parents/)[1];
       const name = q.match(/name = '((?:[^'\\]|\\.)*)'/)?.[1]?.replace(/\\'/g, "'");
