@@ -21,6 +21,16 @@
   #msg.info { background: #1b3650; color: #e8eef3; }
   #msg p { margin: 0; }
   #msg p + p { margin-top: 4px; }
+  #current { margin: 14px 0 0; color: #93a8ba; font-size: 15px; }
+  #overlay { position: fixed; inset: 0; background: rgba(5, 12, 20, 0.75); display: flex; align-items: center; justify-content: center; padding: 24px; }
+  #dialog { max-width: 520px; background: #fff; color: #14263a; border-radius: 12px; padding: 26px; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+  #dialog h2 { margin: 0 0 10px; font-size: 24px; }
+  #dialog p { margin: 0 0 10px; font-size: 16px; }
+  #dialog .names { background: #eef3f7; border-radius: 8px; padding: 10px 12px; font-size: 15px; }
+  #dialog .buttons { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; flex-wrap: wrap; }
+  #dialog button { padding: 11px 20px; }
+  #cancel { background: #e4ebf1; color: #14263a; }
+  #confirm { background: #b5472b; color: #fff; }
   @media (max-width: 520px) { .row { flex-direction: column; } }
 </style>
 </head>
@@ -32,7 +42,20 @@
     <button id="go" type="submit">Submit</button>
   </div>
   <div id="msg" hidden></div>
+  <p id="current" hidden></p>
 </form>
+<div id="overlay" hidden>
+  <div id="dialog" role="dialog" aria-modal="true" aria-labelledby="dlg-title">
+    <h2 id="dlg-title">Change Drive folder?</h2>
+    <p>Your current cached advertisements belong to a different Drive folder. Changing the folder will remove the currently cached advertisements and download advertisements from the new folder.</p>
+    <p class="names" id="dlg-names"></p>
+    <p>The current ads keep playing until the new ones are ready.</p>
+    <div class="buttons">
+      <button id="cancel" type="button">Cancel</button>
+      <button id="confirm" type="button">Change &amp; Remove</button>
+    </div>
+  </div>
+</div>
 <script>
 const $ = (s) => document.querySelector(s);
 function say(kind, lines) {
@@ -41,27 +64,69 @@ function say(kind, lines) {
   box.className = kind;
   box.replaceChildren(...lines.filter(Boolean).map((t) => Object.assign(document.createElement('p'), { textContent: t })));
 }
+async function post(path, body) {
+  const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(data.error || `Something went wrong (HTTP ${res.status}).`), { hint: data.hint, code: data.code });
+  return data;
+}
+
+// Resolves true (Change & Remove) or false (Cancel).
+function confirmChange(check) {
+  return new Promise((resolve) => {
+    $('#dlg-names').textContent = `Current: ${check.current.folderName || 'current folder'}  →  New: ${check.source.folderName} (${check.summary.totalAds} ad${check.summary.totalAds === 1 ? '' : 's'})`;
+    $('#overlay').hidden = false;
+    $('#cancel').focus();
+    const close = (answer) => {
+      $('#overlay').hidden = true;
+      document.removeEventListener('keydown', onKey);
+      resolve(answer);
+    };
+    const onKey = (e) => { if (e.key === 'Escape') close(false); };
+    document.addEventListener('keydown', onKey);
+    $('#cancel').onclick = () => close(false);
+    $('#confirm').onclick = () => close(true);
+  });
+}
+
+async function load(link, replace) {
+  const body = await post('/api/source', { link, replace });
+  if (body.syncError) throw Object.assign(new Error(`The folder was found, but loading the ads failed: ${body.syncError.message}`), { hint: body.syncError.hint });
+  if (!body.summary.totalAds) {
+    say('info', [`Connected to "${body.source.folderName}", but there are no ads in it yet.`, ...body.warnings, 'Add MP4, JPG or PNG files inside subfolders of that folder, then submit the link again.']);
+    return false;
+  }
+  return true;
+}
+
 $('#form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const btn = $('#go');
+  const link = $('#link').value;
   btn.disabled = true;
-  say('info', ['Checking the folder and loading the ads…']);
+  say('info', ['Checking the folder…']);
   try {
-    const res = await fetch('/api/source', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ link: $('#link').value }) });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw Object.assign(new Error(body.error || `Something went wrong (HTTP ${res.status}).`), { hint: body.hint });
-    if (body.syncError) throw Object.assign(new Error(`The folder was found, but loading the ads failed: ${body.syncError.message}`), { hint: body.syncError.hint });
-    if (!body.summary.totalAds) {
-      say('info', [`Connected to "${body.source.folderName}", but there are no ads in it yet.`, ...body.warnings, 'Add MP4, JPG or PNG files inside subfolders of that folder, then submit the link again.']);
+    // 1. Check first: nothing is changed or removed until the new folder is valid and (if needed) confirmed.
+    const check = await post('/api/source/check', { link });
+    if (check.requiresConfirm && !(await confirmChange(check))) {
+      say('info', ['Nothing was changed. The current folder and its saved ads are kept.']);
       btn.disabled = false;
       return;
     }
-    window.location.href = '/tv/';
+    say('info', [check.same ? 'This folder is already connected. Checking for changes…' : 'Loading the ads…']);
+    if (await load(link, check.requiresConfirm)) window.location.href = '/tv/';
+    else btn.disabled = false;
   } catch (err) {
     say('bad', [err.message, err.hint && `Fix: ${err.hint}`]);
     btn.disabled = false;
   }
 });
+
+fetch('/api/source').then((r) => r.json()).then(({ source }) => {
+  if (!source) return;
+  $('#current').hidden = false;
+  $('#current').textContent = `Current folder: ${source.folderName || 'connected'}`;
+}).catch(() => {});
 </script>
 </body>
 </html>

@@ -56,15 +56,34 @@ The TV page is a set of plain static files in `../web-core/` (`index.html`, `app
 - **Health:** `GET /api/health` (no login) returns `ok`, `needsSetup`, `ads`, `revision`, `lastSuccessAt` and `syncOk`. `syncOk` turns false after three failed syncs in a row, which is a good thing to monitor. `GET /api/status` (admin) has the details: `failures`, `lastError`, `lastChange`, `fromDisk`.
 
 ## Offline play (`web-core/cache.js`)
-The TV page saves every ad's file in the browser's IndexedDB and plays the saved copy, so ads keep running when the backend or the network goes away.
-- **Saving:** after the ad list loads, files are downloaded one at a time in play order. The table's **Offline** column shows Saved, a percentage, Waiting, No space or Will retry, and the header shows "Saved for offline play: 12 of 14 ads (350 MB)".
-- **No pointless downloads:** a saved file is reused while its checksum (or modified time) and size are unchanged. A downloaded file whose size does not match Drive is thrown away and retried after 60 seconds.
-- **Changes:** when an ad is replaced in Drive it is downloaded again; when it is deleted, its saved file is removed. Ads that are still in the list are never deleted.
-- **Space:** the TV may use up to 70% of the space the browser allows (`navigator.storage`). Set `cacheMaxMb` in `web-core/config.js` to use a fixed limit instead. Ads that do not fit show "No space" and are streamed from the backend while it is reachable.
-- **Network drops:** the current and following ads play from the saved copies, the Wi-Fi icon turns red, and the page checks the backend every 30 seconds until it answers, then catches up with any changes.
-- **Restart without the backend:** if the page opens but cannot read `/tv/ads.json`, it starts from the last ad list it saved and plays the saved files. (A packaged TV app, which holds the page itself, can do this even when the backend is completely down.)
-- **Limits:** the page itself comes from the backend, so a plain browser tab on a TV that is switched on with the backend down cannot open it. Browsers also decide how long they keep stored data; the page asks them to keep it.
-- If IndexedDB is blocked (some private modes), the page streams from the backend exactly as before and says "Offline saving is not available in this browser".
+The TV page saves every ad's file in the browser's IndexedDB and plays the saved copy, so ads keep running when the backend or the network goes away. The saved files survive page refreshes, browser restarts and (as far as the browser allows) TV restarts.
+
+**What is stored** (never any Google credentials): the files themselves, and the *committed list*: the ad list that is playing, its Drive folder (name and an opaque id), revision, when it was saved and when the backend last answered.
+
+**Safe updates ("stage, verify, commit")**
+1. A new list from the backend is only *staged*. The ads that are playing keep playing.
+2. Missing or changed files are downloaded one at a time, in play order, and size-checked. They are stored under *ad id + checksum*, so an old version and its replacement exist side by side and nothing old is touched.
+3. When everything is safely stored, one database transaction swaps in the new list and deletes the files nobody uses any more. The player switches between two ads, never in the middle of one.
+A failed or cut-off download changes nothing. After 3 failed tries an ad is allowed to stream instead of blocking the update (and it keeps being retried every minute). An ad that does not fit in storage shows "No space", streams while online, and is saved later if space frees up.
+The only exception is an empty cache: the first list plays at once (there is nothing else to play) and is committed when its files are saved. The countdown waits (up to 30 s longer) until the first ad is saved.
+
+**No pointless downloads:** a saved file is reused while its checksum (or modified time) and size are unchanged, so a 5-minute sync downloads only what is new or changed.
+
+**Changing the Drive folder**
+- On the front page the link is *checked first* (does it exist, can the account open it, does it have ads). A broken, private, empty or unreachable link shows an error and changes nothing.
+- If the link is valid but a different folder, a dialog asks "Change Drive folder?" (Cancel / Change & Remove). Cancel changes nothing. Entering the folder that is already active just runs a sync.
+- A folder with no ads cannot replace a folder that has ads.
+- TVs keep playing the old folder's ads until the new folder's ads are fully saved, then switch and delete the old files. The backend cannot delete files on a TV; this is how the TV does it.
+
+**Space:** the TV may use up to 70% of the space the browser allows (`navigator.storage`), or the fixed limit `cacheMaxMb` in `web-core/config.js`. The details screen shows folder, ads saved and size, connection, last sync, and notes such as "Updating to a new version: 2 of 5 files saved".
+
+**Network drops:** saved ads keep playing, the Wi-Fi icon turns red, and the page checks the backend every 30 seconds until it answers, then catches up. The TV's **Sync now** button runs a normal sync (at most once every 10 seconds, no login).
+
+**Restart without the backend:** if the page opens but cannot read `/tv/ads.json`, it starts from the committed list and the saved files. A page that is *served by* a backend that is down cannot open in a plain browser tab; a packaged TV app that holds `web-core/` itself can (Phase 5).
+
+If IndexedDB is blocked (some private modes), the page streams from the backend as before and says so.
+
+**Tests:** `npm test` (backend, fake Drive) and `npm run test:browser` (a real headless Chromium against the real backend and a fake Drive: caching, offline play, restarts, folder change, failed downloads, incremental updates). The browser tests need Playwright (`PLAYWRIGHT_MODULE=/path/to/playwright`) and ffmpeg; they skip themselves without them.
 
 ## Trying it on an Android TV
 1. Put the TV and the computer running the backend on the same Wi-Fi/network.

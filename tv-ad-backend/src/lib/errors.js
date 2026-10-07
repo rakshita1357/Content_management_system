@@ -1,9 +1,10 @@
 // Errors with an HTTP status and an optional "how to fix it" hint shown in the admin page.
 export class AppError extends Error {
-  constructor(status, message, hint = null) {
+  constructor(status, message, hint = null, code = null) {
     super(message);
     this.status = status;
     this.hint = hint;
+    this.code = code;
   }
 }
 

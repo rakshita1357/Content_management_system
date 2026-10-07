@@ -38,9 +38,17 @@ td.c-file{color:#b8c7d4;word-break:break-all}
 .skipped ul{margin:0;padding-left:1.2rem;color:#b8c7d4;font-size:1rem}
 .skipped li{margin:0.2rem 0}
 .error{margin:4rem 0;font-size:1.6rem;color:#e0795a}
-#start{margin-top:1.6rem;padding:0.8rem 1.8rem;font-size:1.3rem;font-weight:600;color:#0f2233;background:#f5b841;
-  border:0.2rem solid #f5b841;border-radius:0.4rem;cursor:pointer;font-family:inherit}
-#start:focus{outline:0.25rem solid #fff}
+.facts{display:-webkit-box;display:-webkit-flex;display:flex;-webkit-flex-wrap:wrap;flex-wrap:wrap;margin:1.2rem 0 0}
+.fact{margin:0 2.6rem 0.4rem 0}
+.fact dt{color:#93a8ba;font-size:0.95rem}
+.fact dd{margin:0.1rem 0 0;font-size:1.15rem;font-weight:600}
+.note{margin:0.6rem 0 0;color:#f5b841;font-size:1rem;min-height:1.4rem}
+.actions{margin:0.6rem 0 0.4rem}
+.btn{display:inline-block;margin:0.6rem 1rem 0 0;padding:0.8rem 1.8rem;font-size:1.3rem;font-weight:600;color:#0f2233;background:#f5b841;
+  border:0.2rem solid #f5b841;border-radius:0.4rem;cursor:pointer;font-family:inherit;text-decoration:none;line-height:1.2}
+.btn.secondary{background:transparent;color:#e8eef3;border-color:#4a6680}
+.btn:focus{outline:0.25rem solid #fff}
+.btn:disabled{opacity:0.6;cursor:progress}
 .wifi{position:fixed;left:1.2rem;bottom:1rem;width:2.2rem;height:2.2rem;z-index:30;color:#3ddc84}
 .wifi.off{color:#ff4d4d}
 .mute{position:fixed;left:3.9rem;bottom:1rem;width:2.2rem;height:2.2rem;z-index:30;color:#f5b841}

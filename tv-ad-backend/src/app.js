@@ -22,7 +22,9 @@ const START_PAGE = new URL('../public/start.html', import.meta.url);
  *   GET  /api/status           sync and publishing status
  *   GET  /api/ads              current ads.json
  *   GET  /api/source           the Drive folder in use
- *   POST /api/source           {link}: validate a pasted Drive folder link and switch to it
+ *   POST /api/source/check     {link}: validate a pasted link and say what choosing it would do (changes nothing)
+ *   POST /api/source           {link, replace?}: switch to that folder (a different folder needs replace: true)
+ *   POST /tv/sync              the TV's "Sync now" button: run a normal sync (no login, at most once per 10 s)
  *   POST /api/sync             rescan Drive and publish now
  *   PUT  /api/upload?adName=&fileName=   raw file body, streamed to Drive
  *   GET  /preview/ads.json     the manifest as it will be published
@@ -36,6 +38,7 @@ export function createApp({ config, sync, uploads, sources, reader, log = consol
     'config.js': 'application/javascript; charset=utf-8',
     'cache.js': 'application/javascript; charset=utf-8',
   };
+  let lastTvSync = 0;
   const webCore = (name) => async (req, res) => {
     let body;
     try {
@@ -84,7 +87,11 @@ export function createApp({ config, sync, uploads, sources, reader, log = consol
     'GET /api/source': (req, res) => sendJson(res, 200, { source: sync.getSource() }),
     'POST /api/source': async (req, res) => {
       const body = await readJson(req);
-      sendJson(res, 200, await sources.apply(body.link));
+      sendJson(res, 200, await sources.apply(body.link, { replace: body.replace === true }));
+    },
+    'POST /api/source/check': async (req, res) => {
+      const body = await readJson(req);
+      sendJson(res, 200, await sources.check(body.link));
     },
     'POST /api/sync': async (req, res) => sendJson(res, 200, await sync.sync({ reason: 'manual', force: true })),
     'PUT /api/upload': async (req, res, url) => {
@@ -115,6 +122,16 @@ export function createApp({ config, sync, uploads, sources, reader, log = consol
     'GET /tv/player.js': webCore('player.js'),
     'GET /tv/config.js': webCore('config.js'),
     'GET /tv/cache.js': webCore('cache.js'),
+    // The TV's own "Sync now": a normal (not forced) sync, throttled so a remote's key-repeat cannot hammer Drive.
+    'POST /tv/sync': async (req, res) => {
+      const t = Date.now();
+      if (t - lastTvSync < 10_000) return sendJson(res, 200, { throttled: true, ...sync.getHealth() });
+      lastTvSync = t;
+      try {
+        await sync.sync({ reason: 'tv' });
+      } catch { /* the failure shows up in health.syncOk and the admin page */ }
+      sendJson(res, 200, { throttled: false, ...sync.getHealth() });
+    },
     'GET /tv/ads.json': tvManifest,
   };
   const CONTENT = /^\/api\/ads\/([^/]+)\/content$/;
@@ -145,7 +162,7 @@ export function createApp({ config, sync, uploads, sources, reader, log = consol
       // If we refused an upload before reading it, read and discard the rest so the browser
       // receives this error (closing the connection early shows up as "connection dropped" on Windows).
       if (!req.complete) req.resume();
-      sendJson(res, status, { error: status >= 500 && !err.status ? 'Something went wrong on the server. Check the backend log.' : err.message, hint: err.hint || null });
+      sendJson(res, status, { error: status >= 500 && !err.status ? 'Something went wrong on the server. Check the backend log.' : err.message, hint: err.hint || null, code: err.code || null });
     }
   });
 }
