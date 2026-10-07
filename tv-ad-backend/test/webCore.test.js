@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { loadConfig } from '../src/config.js';
 
 const dir = loadConfig({ DRIVE_API_KEY: 'k' }).webCoreDir;
@@ -35,9 +35,23 @@ test('index.html loads its files by relative path (so a packaged TV app can bund
   assert.doesNotMatch(html, /(href|src)="\/(?!\/)/, 'no root-absolute paths');
 });
 
+test('the player offers the native hooks the Android TV app uses', async () => {
+  const js = await read('player.js');
+  assert.match(js, /window\.TV_NATIVE_BACK = /);
+  assert.match(js, /TVNative\.changeServer/);
+});
+
 test('the player takes every URL from the configurable API base', async () => {
   const js = await read('player.js');
   assert.match(js, /apiBase/);
   assert.doesNotMatch(js, /(open\('GET', |\.src = )'\//, 'no hard-coded absolute backend paths');
   assert.match(js, /API \+ ad\.src/);
+});
+
+test('web-core file names are safe for the Android app, which only serves names made of letters, digits, . _ -', async () => {
+  const names = await readdir(dir);
+  assert.ok(names.includes('index.html'));
+  for (const name of names) assert.match(name, /^[A-Za-z0-9._-]+$/, name);
+  // the app serves these from its assets under web/; the page loads them by these names
+  for (const name of ['index.html', 'app.css', 'player.js', 'cache.js', 'config.js']) assert.ok(names.includes(name), name);
 });
