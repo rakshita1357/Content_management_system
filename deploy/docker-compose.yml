@@ -1,0 +1,15 @@
+# Run from this folder:  docker compose up -d --build
+# Settings come from ../tv-ad-backend/.env (copy .env.example and fill it in). Saved state lives in the "tvads-data" volume.
+services:
+  tvads:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    env_file: ../tv-ad-backend/.env
+    ports:
+      - "8080:8080"
+    volumes:
+      - tvads-data:/data
+    restart: unless-stopped
+volumes:
+  tvads-data:

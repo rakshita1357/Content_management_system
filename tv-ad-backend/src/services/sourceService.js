@@ -33,10 +33,31 @@ export function createSourceService({ reader, sync }) {
   const currentOf = () => sync.getSource();
   const hasAds = () => (sync.getManifest()?.ads.length || 0) > 0;
 
+  // What we know about the folder that is already connected, for when Google cannot be reached right now.
+  function fromSaved(current) {
+    const manifest = sync.getManifest();
+    return {
+      source: current,
+      summary: manifest?.summary || { totalAds: 0, videos: 0, images: 0, totalBytes: 0, loopSec: 0, unknownDurations: 0, adFolders: [] },
+      skipped: manifest?.skipped || [],
+      warnings: ['Google Drive could not be reached just now. The saved ads keep playing and it will sync again when Drive is reachable.'],
+      offline: true,
+    };
+  }
+
   // Validates a link and says what choosing it would do. Changes nothing.
   async function check(input) {
-    const info = await inspect(input);
     const current = currentOf();
+    const sameLink = Boolean(current && current.folderId === parseFolderInput(input));
+    let info;
+    try {
+      info = await inspect(input);
+    } catch (err) {
+      // The folder that is already connected must not stop working because Drive or the internet is down:
+      // a link to it just opens the saved ads. Real problems (a deleted or private folder) still show.
+      if (!(sameLink && err.status === 502)) throw err;
+      info = fromSaved(current);
+    }
     const same = Boolean(current && current.folderId === info.source.folderId);
     return {
       ...info,

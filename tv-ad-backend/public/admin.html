@@ -56,6 +56,11 @@
   #upload-result.good { background: var(--good-bg); color: #1d5039; }
   #upload-result.bad { background: var(--bad-bg); color: #6d2614; }
   .table-wrap { overflow-x: auto; }
+  .wide { grid-column: 1 / -1; }
+  .tag { font-size: 13px; font-weight: 600; padding: 2px 8px; border-radius: 4px; }
+  .tag.good { background: var(--good-bg); color: #1d5039; }
+  .tag.bad { background: var(--bad-bg); color: #6d2614; }
+  .tag.idle { background: #e7edf2; color: #3d5266; }
   table { width: 100%; border-collapse: collapse; }
   th { text-align: left; font-weight: 500; color: var(--muted); font-size: 14px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
   td { padding: 10px; border-bottom: 1px solid #eaeff3; vertical-align: middle; }
@@ -129,6 +134,17 @@
       </table>
     </div>
     <div id="skipped" hidden><strong>Found in Drive but not playing</strong><ul id="skipped-list"></ul></div>
+  </section>
+
+  <section class="panel wide">
+    <h2>Screens</h2>
+    <p class="help" id="screens-help">Each TV reports in every minute while its page is open.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Screen</th><th>Status</th><th>Ad list</th><th class="hide-narrow">Saved offline</th><th class="hide-narrow">Page</th><th class="num">Last seen</th></tr></thead>
+        <tbody id="screens"><tr><td colspan="6" class="empty">No screen has reported in yet. Open the TV page on a TV.</td></tr></tbody>
+      </table>
+    </div>
   </section>
 </main>
 
@@ -247,11 +263,53 @@ function renderAds(m) {
   }));
 }
 
+function ago(sec) {
+  if (sec < 90) return `${sec} s ago`;
+  if (sec < 5400) return `${Math.round(sec / 60)} min ago`;
+  if (sec < 172800) return `${Math.round(sec / 3600)} h ago`;
+  return `${Math.round(sec / 86400)} days ago`;
+}
+
+function renderScreens(data) {
+  const rows = $('#screens');
+  rows.replaceChildren();
+  if (!data.screens.length) {
+    const tr = document.createElement('tr');
+    tr.append(cell('No screen has reported in yet. Open the TV page on a TV.', 'empty'));
+    tr.firstChild.colSpan = 6;
+    rows.append(tr);
+    return;
+  }
+  for (const s of data.screens) {
+    const stale = s.ageSec > data.staleAfterSec;
+    const tr = document.createElement('tr');
+    const status = document.createElement('span');
+    status.className = `tag ${stale || !s.online ? 'bad' : s.playing ? 'good' : 'idle'}`;
+    status.textContent = stale ? `Not seen for ${ago(s.ageSec).replace(' ago', '')}` : !s.online ? 'Offline (cannot reach this server)' : s.playing ? `Playing ${s.playing}` : 'Showing the ad list';
+    const list = document.createElement('span');
+    const current = s.revision && s.revision === data.currentRevision;
+    list.className = `tag ${current ? 'good' : 'idle'}`;
+    list.textContent = current ? 'Up to date' : s.revision ? 'Older list' : 'Unknown';
+    const sc = cell(s.name || s.id.slice(0, 11), 'ad');
+    sc.title = `${s.id} (${s.kind === 'android' ? 'Android TV app' : 'browser'})${s.folder ? `, folder ${s.folder}` : ''}`;
+    const sct = cell(''); sct.append(status);
+    const lt = cell(''); lt.append(list);
+    tr.append(
+      sc, sct, lt,
+      cell(`${s.adsSaved} of ${s.adsTotal} ads, ${size(s.cacheBytes)}${s.quotaBytes ? ` of about ${size(s.quotaBytes)}` : ''}`, 'hide-narrow'),
+      cell(s.version || '', 'hide-narrow file'),
+      cell(ago(s.ageSec), 'num'),
+    );
+    rows.append(tr);
+  }
+}
+
 async function refresh() {
   try {
-    const [status, manifest] = await Promise.all([api('/api/status'), api('/api/ads')]);
+    const [status, manifest, screens] = await Promise.all([api('/api/status'), api('/api/ads'), api('/api/screens')]);
     renderStatus(status);
     renderAds(manifest);
+    renderScreens(screens);
   } catch (err) {
     $('#status-line').textContent = `Cannot reach the backend: ${err.message}`;
   }

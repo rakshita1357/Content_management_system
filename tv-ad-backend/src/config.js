@@ -16,6 +16,20 @@ export const PUBLISHED_FILES = { manifest: 'ads.json', page: 'index.html' };
 
 const ID_PATTERN = /^[A-Za-z0-9_-]{10,}$/;
 
+function oneOf(value, allowed, fallback, name) {
+  if (value === undefined || value === '') return fallback;
+  if (!allowed.includes(value)) throw new Error(`${name} must be one of: ${allowed.join(', ')}.`);
+  return value;
+}
+
+function tlsFrom(env) {
+  const certFile = env.TLS_CERT_FILE || '';
+  const keyFile = env.TLS_KEY_FILE || '';
+  if (!certFile && !keyFile) return null;
+  if (!certFile || !keyFile) throw new Error('Set both TLS_CERT_FILE and TLS_KEY_FILE to serve https, or neither.');
+  return { certFile, keyFile };
+}
+
 export function loadConfig(env = process.env) {
   const hasOAuth = Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GOOGLE_REFRESH_TOKEN);
   if (!hasOAuth && !env.DRIVE_API_KEY) {
@@ -39,6 +53,12 @@ export function loadConfig(env = process.env) {
       clientSecret: env.GOOGLE_CLIENT_SECRET || '',
       refreshToken: env.GOOGLE_REFRESH_TOKEN || '',
     },
+    // Where to listen. Empty = chosen from the admin password (see lib/security.js).
+    host: env.HOST || '',
+    trustProxy: env.TRUST_PROXY === 'true',
+    tls: tlsFrom(env),
+    logLevel: oneOf(env.LOG_LEVEL, ['debug', 'info', 'warn', 'error'], 'info', 'LOG_LEVEL'),
+    logFormat: oneOf(env.LOG_FORMAT, ['text', 'json'], 'text', 'LOG_FORMAT'),
     adminUser: env.ADMIN_USER || 'admin',
     adminPassword: env.ADMIN_PASSWORD || '',
     imageDurationSec: num('IMAGE_DURATION_SEC', 60, 1),

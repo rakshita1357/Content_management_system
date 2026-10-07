@@ -15,12 +15,23 @@ The folder does **not** need to be shared publicly: the backend reads it as your
 streams the media to the TV. `DRIVE_API_KEY` is only an optional fallback for a folder shared as
 "Anyone with the link: Viewer" when OAuth is not set up.
 
+## Running it for real
+See **`../deploy/README.md`**: running as a service (systemd, Windows, Docker), https, backups, updating, monitoring and a security checklist.
+Run `npm run doctor` on the machine first: it checks the installation and says what to fix.
+- The backend only listens on the local network when `ADMIN_PASSWORD` is real (8+ characters, not a placeholder). Otherwise it accepts connections from its own computer only (override with `HOST`).
+- Wrong admin passwords are limited (10 in 10 minutes, then that address waits 10 minutes); requests started by another website are refused; unexpected errors stop the program so the service manager restarts it; a damaged `data/state.json` is kept aside and the backend starts clean.
+- `GET /api/health` (no login) reports `ok`, `syncOk`, `ads`, `revision`, `lastSuccessAt`, `version` and `webVersion`.
+- The admin page has a **Screens** table: each TV reports in every minute with what it plays, which ad list it has, and how full its offline storage is.
+- After a restart, an update or a power cut a TV goes straight back to playing (unless someone left the player with X or Back). A browser TV reloads itself between two ads when the backend serves a newer page.
+
 ## Commands
 | Command | What it does |
 | --- | --- |
 | `npm run scan` | Read-only check of the folder. Writes `data/ads.preview.json`. |
+| `npm run test:browser` | Real-browser tests of caching, offline play, restarts and updates (needs Playwright and ffmpeg). |
 | `npm run auth` | One-time Google sign-in that prints `GOOGLE_REFRESH_TOKEN`. |
 | `npm start` | Starts the backend and the admin page, and syncs every `SYNC_INTERVAL_SEC`. |
+| `npm run doctor` | Checks Node.js, the TV page files, the data folder, the admin password, the Google login, the Drive folder and the port. |
 | `npm test` | Unit and end-to-end tests against a fake Drive. No internet needed. |
 
 ## Choosing the Drive folder (the front page)

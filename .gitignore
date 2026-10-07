@@ -15,6 +15,10 @@ tv-ad-backend/client_secret*.json
 tv-ad-backend/cache/
 tv-ad-backend/data/cache/
 
+# Everything the running backend writes (chosen folder, saved ad list, screens, previews): never commit it
+tv-ad-backend/data/*
+!tv-ad-backend/data/.gitkeep
+
 # Logs
 *.log
 npm-debug.log*

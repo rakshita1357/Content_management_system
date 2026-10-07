@@ -12,6 +12,23 @@
     info: function (cb) { cb({ available: false, quota: 0 }); }
   };
 
+  // Small settings kept on the device (which screen this is, whether it was playing). Works without storage too.
+  function keep(key, value) {
+    try {
+      if (value === undefined) return window.localStorage.getItem(key);
+      if (value === null) window.localStorage.removeItem(key); else window.localStorage.setItem(key, value);
+    } catch (e) {}
+    return null;
+  }
+  function screenId() {
+    var id = keep('tvads.deviceId');
+    if (!id || !/^[A-Za-z0-9_-]{8,64}$/.test(id)) {
+      id = 'tv-' + Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10) + new Date().getTime().toString(36);
+      keep('tvads.deviceId', id);
+    }
+    return id;
+  }
+
   function $(id) { return document.getElementById(id); }
   function pad(n) { return n < 10 ? '0' + n : String(n); }
   function el(tag, cls, text) {
@@ -41,7 +58,7 @@
     var tbody = $('rows');
 
     var cacheCells = {};
-    var health = null, extra = { quota: 0, lastSyncAt: null }, extraAt = 0;
+    var health = null, extra = { quota: 0, lastSyncAt: null }, extraAt = 0, loadedVersion = null, reloadWanted = false;
     function refreshFacts() {
       var sum = cache.summary(data), parts = [], up = cache.pending();
       $('f-folder').textContent = (data.source && data.source.name) || 'Drive folder';
@@ -73,8 +90,40 @@
       var x = new XMLHttpRequest();
       x.open('GET', API + '/api/health', true);
       x.timeout = 10000;
-      x.onload = function () { try { health = JSON.parse(x.responseText); } catch (e) {} refreshFacts(); };
+      x.onload = function () {
+        try { health = JSON.parse(x.responseText); } catch (e) {}
+        refreshFacts();
+        // The backend serves a newer page (web-core was updated): reload between two ads. The app has its page built in, so it never does this.
+        if (health && health.webVersion && !window.TVNative) {
+          if (!loadedVersion) loadedVersion = health.webVersion;
+          else if (health.webVersion !== loadedVersion) { reloadWanted = true; if (!active) reloadSafely(); }
+        }
+      };
       try { x.send(); } catch (e) {}
+    }
+    // Only reload when the new page can really be fetched, so a backend that just went down cannot leave a blank screen.
+    function reloadSafely() {
+      var x = new XMLHttpRequest();
+      x.open('GET', API + '/tv/index.html?t=' + new Date().getTime(), true);
+      x.timeout = 8000;
+      x.onload = function () { if (x.status === 200) window.location.reload(); };
+      try { x.send(); } catch (e) {}
+    }
+    // Tells the backend which screen this is and how it is doing (shown on the admin page). Nothing here is secret.
+    function sendHeartbeat() {
+      var sum = cache.summary(data), x = new XMLHttpRequest();
+      x.open('POST', API + '/tv/heartbeat', true);
+      x.setRequestHeader('Content-Type', 'text/plain;charset=UTF-8');   // a plain request: no cross-origin pre-check needed
+      x.timeout = 8000;
+      try {
+        x.send(JSON.stringify({
+          id: screenId(), name: (window.TV_CONFIG && window.TV_CONFIG.screenName) || null,
+          kind: window.TVNative ? 'android' : 'browser', version: health && health.webVersion || null,
+          online: online, playing: active && data.ads[idx] ? data.ads[idx].fileName : null,
+          revision: data.revision, folder: data.source && data.source.name || null,
+          adsSaved: sum.ready, adsTotal: sum.total, cacheBytes: sum.bytes, quotaBytes: extra.quota
+        }));
+      } catch (e) {}
     }
     function renderBoard() {
       var s = data.summary, i, j, k;
@@ -122,7 +171,7 @@
     // ---- connectivity icon: green online, red offline
     var online = navigator.onLine !== false;
     function showWifi() { $('wifi').className = 'wifi ' + (online ? 'on' : 'off'); $('wifi').title = online ? 'Online' : 'Offline'; }
-    function setOnline(v) { online = v; showWifi(); refreshFacts(); }
+    function setOnline(v) { var changed = v !== online; online = v; showWifi(); refreshFacts(); if (changed && typeof sendHeartbeat === 'function' && data) sendHeartbeat(); }
     window.addEventListener('online', function () { setOnline(true); checkUpdate(); });
     window.addEventListener('offline', function () { setOnline(false); });
     showWifi();
@@ -160,6 +209,7 @@
       renderBoard();
       refreshFacts();
       idx = -1;
+      if (!active && keep('tvads.autoplay') === '1' && data.ads.length) startPlayer();   // it was playing before the list was empty
     }
     function skip() {
       clearTimeout(timer); clearTimeout(watchdog);
@@ -169,6 +219,7 @@
     function next() { go(idx + 1); }
     function go(i) {
       if (!active) return;
+      if (reloadWanted) { reloadSafely(); }   // a new page is waiting: reload (the player resumes by itself)
       applyPending();
       if (!data.ads.length) { stopPlayer(); return; }
       idx = ((i % data.ads.length) + data.ads.length) % data.ads.length;
@@ -225,6 +276,7 @@
       if (!data.ads.length) return;
       stopAuto();
       active = true; failures = 0; idx = -1;
+      keep('tvads.autoplay', '1');   // after a restart or an update the TV goes straight back to playing
       $('player-root').hidden = false;
       document.body.style.overflow = 'hidden';
       fullscreen(true);
@@ -241,9 +293,12 @@
       if (v && v.muted) { v.muted = false; var q = v.play(); if (q && q.catch) q.catch(function () {}); }
       $('mute').hidden = true;
     }
-    function stopPlayer() {
+    // byUser: someone chose to leave the player (X, Back); then it stays off after a restart. Without it (for example an empty
+    // list) the TV still resumes later.
+    function stopPlayer(byUser) {
       if (!active) return;
       active = false;
+      if (byUser === true) keep('tvads.autoplay', '0');
       if (inHistory) { inHistory = false; try { history.back(); } catch (e) {} }
       clearStage();
       $('player-root').hidden = true;
@@ -281,14 +336,14 @@
 
     // ---- controls: Start/Enter, X / Back / Esc exits, left/right skip
     $('start').onclick = startPlayer;
-    $('exit').onclick = function () { stopPlayer(); };
+    $('exit').onclick = function () { stopPlayer(true); };
     document.addEventListener('keydown', function (e) {
       var k = e.keyCode;
       if (active) {
         // Back: Esc, Backspace, Android TV / browser Back, webOS (461) and Tizen (10009) remotes.
         var back = k === 27 || k === 8 || k === 4 || k === 461 || k === 10009 ||
           e.key === 'GoBack' || e.key === 'BrowserBack' || e.key === 'Escape';
-        if (back) { e.preventDefault(); stopPlayer(); return; }
+        if (back) { e.preventDefault(); stopPlayer(true); return; }
         if (k === 40) { e.preventDefault(); $('exit').focus(); return; }          // Down: reach the X
         if (k === 38) { e.preventDefault(); $('exit').blur(); return; }
         if (k === 13 && document.activeElement === $('exit')) return;             // OK on the X exits
@@ -299,13 +354,13 @@
       } else if (autoTimer) { stopAuto(); }
     });
     // The Back button of the browser/remote returns from the player to the table.
-    window.addEventListener('popstate', function () { if (active) { inHistory = false; stopPlayer(); } });
+    window.addEventListener('popstate', function () { if (active) { inHistory = false; stopPlayer(true); } });
     $('player-root').onclick = function (e) { if (e.target !== $('exit')) userGesture(); };
 
     $('change-folder').href = API + '/';
     // Inside the Android TV app a native bridge exists: the Back key is offered to the player first, and the
     // server address of the app can be changed from here.
-    window.TV_NATIVE_BACK = function () { if (active) { stopPlayer(); return true; } return false; };
+    window.TV_NATIVE_BACK = function () { if (active) { stopPlayer(true); return true; } return false; };
     if (window.TVNative && window.TVNative.changeServer) {
       $('change-server').hidden = false;
       $('change-server').onclick = function () { window.TVNative.changeServer(); };
@@ -332,8 +387,12 @@
     cache.sync(live || data);
     refreshCache();
     fetchHealth();
+    sendHeartbeat();
+    setInterval(sendHeartbeat, 60000);
     window.ADS_PLAYER = { start: startPlayer, stop: stopPlayer };
-    if (data.ads.length) {
+    if (data.ads.length && keep('tvads.autoplay') === '1') {
+      startPlayer();   // it was playing when it stopped (power cut, restart, update): carry on without anyone pressing anything
+    } else if (data.ads.length) {
       // The countdown ends in playback. With an empty cache it also waits (up to 30 seconds longer) until the first
       // ad is saved, so the TV does not start by streaming everything.
       autoLeft = 10;

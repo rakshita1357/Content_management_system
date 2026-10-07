@@ -1,0 +1,6 @@
+.git
+**/node_modules
+**/.env
+tv-ad-backend/data
+wrappers
+deploy
