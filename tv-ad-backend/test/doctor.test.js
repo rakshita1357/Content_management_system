@@ -62,3 +62,72 @@ test('doctor: a data folder that cannot be written is reported', async () => {
   assert.equal(r['Data folder'].level, 'fail');
   assert.match(r['Data folder'].fix, /write access/);
 });
+
+// ---- the port check and the start-up message ----
+import http from 'node:http';
+import net from 'node:net';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { whoUsesPort, portInUseMessage } from '../src/lib/portProbe.js';
+
+const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server.address().port)));
+const ourBackend = () => http.createServer((req, res) => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ ok: true, webVersion: 'abc', version: '9.9.9' })); });
+
+test('port probe tells another copy of this backend from another program', async () => {
+  const ours = ourBackend();
+  const other = http.createServer((req, res) => res.end('hello'));
+  const raw = net.createServer((s) => s.destroy());
+  const ports = [await listen(ours), await listen(other), await listen(raw)];
+  try {
+    assert.deepEqual(await whoUsesPort(ports[0]), { ours: true, version: '9.9.9' });
+    assert.equal((await whoUsesPort(ports[1])).ours, false);
+    assert.equal((await whoUsesPort(ports[2], { timeoutMs: 500 })).ours, false);
+  } finally { ours.close(); other.close(); raw.close(); }
+  assert.equal((await whoUsesPort(1, { timeoutMs: 300 })).ours, false, 'nothing there');
+  assert.match(portInUseMessage(8080, { ours: true, version: '1.2.3' }), /another copy of this backend \(version 1\.2\.3\).*PORT=8081/);
+  assert.match(portInUseMessage(8080, { ours: false }), /another program.*PORT=8081/);
+});
+
+test('doctor: a port held by a running backend is fine to check, a port held by something else is a warning with a fix', async () => {
+  const ours = ourBackend();
+  const other = http.createServer((req, res) => res.end('hello'));
+  const p1 = await listen(ours);
+  const p2 = await listen(other);
+  try {
+    const a = await check({ PORT: String(p1), HOST: '127.0.0.1' });
+    assert.equal(a.Port.level, 'ok');
+    assert.match(a.Port.detail, /running copy of this backend \(version 9\.9\.9\)/);
+    const b = await check({ PORT: String(p2), HOST: '127.0.0.1' });
+    assert.equal(b.Port.level, 'warn');
+    assert.match(b.Port.detail, /another program/);
+    assert.match(b.Port.fix, /PORT=/);
+  } finally { ours.close(); other.close(); }
+});
+
+test('starting a second backend on the same port explains why it stopped (no crash text)', { timeout: 40000 }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tvport-'));
+  const port = 46000 + Math.floor(Math.random() * 3000);
+  const server = fileURLToPath(new URL('../src/server.js', import.meta.url));
+  const env = { ...process.env, PORT: String(port), HOST: '127.0.0.1', DATA_DIR: dir, DRIVE_API_KEY: 'k', LOG_LEVEL: 'info' };
+  const run = () => spawn(process.execPath, [server], { env });
+  const first = run();
+  try {
+    await new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('first backend did not start')), 15000);
+      first.stdout.on('data', (d) => { if (String(d).includes('listening on')) { clearTimeout(t); resolve(); } });
+      first.on('exit', () => reject(new Error('first backend exited')));
+    });
+    const second = run();
+    let out = '';
+    second.stdout.on('data', (d) => { out += d; });
+    second.stderr.on('data', (d) => { out += d; });
+    const code = await new Promise((resolve) => second.on('exit', resolve));
+    assert.equal(code, 1);
+    assert.match(out, /already in use by another copy of this backend/);
+    assert.match(out, new RegExp(`PORT=${port + 1}`));
+    assert.doesNotMatch(out, /Unexpected error|so the service can restart|at Server\.setupListenHandle/, 'no crash text or stack trace');
+  } finally {
+    first.kill();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

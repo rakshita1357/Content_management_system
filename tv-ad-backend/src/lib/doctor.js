@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
+import { whoUsesPort, portInUseMessage } from './portProbe.js';
 import { chooseHost, isWeakPassword } from './security.js';
 
 const WEB_FILES = ['index.html', 'app.css', 'player.js', 'cache.js', 'config.js'];
@@ -78,8 +79,15 @@ export async function runDoctor({ config, tokens, reader, store, nodeVersion = p
     probe.once('error', (err) => resolve(err.code || 'error'));
     probe.listen(config.port, host, () => probe.close(() => resolve(null)));
   });
-  if (!free) add('Port', 'ok', `${config.port} is free`);
-  else add('Port', 'warn', `${config.port} cannot be used right now (${free})`, 'If the backend is already running this is expected. Otherwise stop what uses the port or change PORT.');
+  if (!free) {
+    add('Port', 'ok', `${config.port} is free`);
+  } else if (free === 'EADDRINUSE') {
+    const who = await whoUsesPort(config.port, { host: host === '0.0.0.0' || host === '::' ? '127.0.0.1' : host, tls: Boolean(config.tls) });
+    if (who.ours) add('Port', 'ok', `${config.port} is used by a running copy of this backend${who.version ? ` (version ${who.version})` : ''}. That is fine for a check, but you cannot start a second one.`);
+    else add('Port', 'warn', `${config.port} is used by another program`, portInUseMessage(config.port, who));
+  } else {
+    add('Port', 'warn', `${config.port} cannot be used right now (${free})`, 'Change PORT, or check that HOST is a valid address of this computer.');
+  }
 
   return results;
 }

@@ -7,6 +7,7 @@ import { createPublicReader } from './drive/publicReader.js';
 import { createTokenProvider } from './drive/oauth.js';
 import { createDriveWriter } from './drive/writer.js';
 import { createLogger } from './lib/logger.js';
+import { whoUsesPort, portInUseMessage } from './lib/portProbe.js';
 import { chooseHost, isWeakPassword } from './lib/security.js';
 import { createStateStore } from './lib/stateStore.js';
 import { appVersion } from './lib/version.js';
@@ -68,6 +69,20 @@ server.requestTimeout = 0; // large video uploads can take longer than Node's de
 
 const host = chooseHost(config);
 const scheme = tls ? 'https' : 'http';
+// Problems taking the port are the most common start-up failure: explain them instead of showing a crash.
+server.on('error', async (err) => {
+  if (err.code === 'EADDRINUSE') {
+    const who = await whoUsesPort(config.port, { host: host === '0.0.0.0' || host === '::' ? '127.0.0.1' : host, tls: Boolean(tls) });
+    log.error(`Cannot start. ${portInUseMessage(config.port, who)}`);
+  } else if (err.code === 'EACCES') {
+    log.error(`Cannot start. This account may not use port ${config.port}. Use a port above 1024 (PORT=8080), or run it as a service with the right permissions.`);
+  } else if (err.code === 'EADDRNOTAVAIL') {
+    log.error(`Cannot start. This computer has no network address "${host}". Check HOST in .env (leave it empty, or use 0.0.0.0).`);
+  } else {
+    log.error(`Cannot start: ${err.message}`);
+  }
+  process.exit(1);
+});
 server.listen(config.port, host, () => {
   log.info(`TV ads backend ${appVersion} listening on ${scheme}://${host}:${config.port}`);
   log.info(`Start page (paste a Drive folder link): ${scheme}://localhost:${config.port}/`);
