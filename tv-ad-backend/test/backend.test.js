@@ -49,13 +49,12 @@ test('admin API requires login', async (t) => {
   assert.equal((await fetch(`${env.base}/api/status`, { headers: AUTH })).status, 200);
 });
 
-test('sync publishes index.html and ads.json, then skips unchanged content', async (t) => {
+test('sync publishes ads.json to Drive, then skips unchanged content', async (t) => {
   const env = await setup(); t.after(env.close);
   const first = await env.sync.sync();
   assert.equal(first.published, true);
   const manifest = JSON.parse(env.google.bodies.get(fileByName(env.google, 'ads.json').id));
   assert.equal(manifest.ads.length, 3);
-  assert.match(env.google.bodies.get(fileByName(env.google, 'index.html').id), /Ad run order/);
   const second = await env.sync.sync();
   assert.equal(second.published, false);
   assert.equal(second.changed, false);
@@ -159,8 +158,6 @@ test('public manifest hides the Drive folder id; the admin copy keeps it', async
   await env.sync.sync();
   const pub = await (await fetch(`${env.base}/tv/ads.json`)).text();
   assert.doesNotMatch(pub, new RegExp(ROOT_ID));
-  const page = await (await fetch(`${env.base}/tv`)).text();
-  assert.doesNotMatch(page, new RegExp(ROOT_ID));
   const admin = await (await fetch(`${env.base}/preview/ads.json`, { headers: AUTH })).json();
   assert.equal(admin.source.folderId, ROOT_ID);
 });
@@ -170,7 +167,7 @@ test('without OAuth, a private folder still scans as 0 ads (key-only reader)', a
   assert.equal((await env.sync.sync()).totalAds, 0);
 });
 
-test('end to end on a private folder: upload anime/ad1.jpg appears in Run order, ads.json and index.html', async (t) => {
+test('end to end on a private folder: upload anime/ad1.jpg appears in Run order and ads.json', async (t) => {
   const env = await setup({ publicVisible: false }); t.after(env.close);
   await env.sync.sync();
   const up = await fetch(`${env.base}/api/upload?adName=anime&fileName=ad1.jpg`, { method: 'PUT', headers: { ...AUTH, 'Content-Type': 'image/jpeg' }, body: Buffer.alloc(500, 1) });
@@ -181,7 +178,6 @@ test('end to end on a private folder: upload anime/ad1.jpg appears in Run order,
   assert.equal(ad.durationSec, 60);
   const published = JSON.parse(env.google.bodies.get(fileByName(env.google, 'ads.json').id));
   assert.ok(published.ads.some((a) => a.adName === 'anime' && a.fileName === 'ad1.jpg'));
-  assert.match(env.google.bodies.get(fileByName(env.google, 'index.html').id), /ad1\.jpg/);
 });
 
 test('TV routes need no login: /tv page, /tv/ads.json, health', async (t) => {
@@ -247,13 +243,14 @@ test('parseFolderInput accepts common link shapes and rejects the rest with a cl
   assert.throws(() => parseFolderInput('not a link at all'), /link/);
 });
 
-test('first run: no folder yet, nothing to scan, /tv shows a waiting page, then pasting a link loads the ads', async (t) => {
+test('first run: no folder yet, nothing to scan, /tv/ads.json says so, then pasting a link loads the ads', async (t) => {
   const env = await setup({ folderId: '' }); t.after(env.close);
   assert.equal(env.sync.getStatus().needsSetup, true);
   assert.equal((await env.sync.sync()).needsSetup, true);
-  const waiting = await fetch(`${env.base}/tv`);
+  const waiting = await fetch(`${env.base}/tv/ads.json`);
   assert.equal(waiting.status, 503);
-  assert.match(await waiting.text(), /No Drive folder is connected/);
+  assert.match((await waiting.json()).error, /No Drive folder is connected/);
+  assert.equal((await fetch(`${env.base}/tv/`)).status, 200, 'the page itself always loads and shows the message');
 
   const res = await post(env, '/api/source', { link: FOLDER_LINK(ROOT_ID) });
   const body = await res.json();
@@ -264,7 +261,7 @@ test('first run: no folder yet, nothing to scan, /tv shows a waiting page, then 
   assert.equal(body.sync.totalAds, 3);
   assert.ok(body.warnings.some((w) => /ignored/.test(w)), 'root-level files are called out');
   assert.equal(env.sync.getStatus().needsSetup, false);
-  assert.equal((await fetch(`${env.base}/tv`)).status, 200);
+  assert.equal((await fetch(`${env.base}/tv/ads.json`)).status, 200);
 });
 
 test('the chosen folder is remembered across a restart and wins over .env', async (t) => {
@@ -333,8 +330,32 @@ test('the front page is just a link box that posts to /api/source; admin keeps i
   const html = await home.text();
   assert.match(html, /id="link"/);
   assert.match(html, /\/api\/source/);
-  assert.match(html, /window\.location\.href = '\/tv'/);
+  assert.match(html, /window\.location\.href = '\/tv\/'/);
   const admin = await (await fetch(`${env.base}/admin`, { headers: AUTH })).text();
   assert.match(admin, /Add an ad/);
   assert.doesNotMatch(admin, /source-form/);
+});
+
+test('web-core files are served at /tv/, unknown files and path tricks are refused', async (t) => {
+  const env = await setup(); t.after(env.close);
+  const redirect = await fetch(`${env.base}/tv`, { redirect: 'manual' });
+  assert.equal(redirect.status, 302);
+  assert.equal(redirect.headers.get('location'), '/tv/');
+  for (const [file, type] of [['', /text\/html/], ['index.html', /text\/html/], ['app.css', /text\/css/], ['player.js', /javascript/], ['config.js', /javascript/]]) {
+    const res = await fetch(`${env.base}/tv/${file}`);
+    assert.equal(res.status, 200, file);
+    assert.match(res.headers.get('content-type'), type);
+  }
+  assert.equal((await fetch(`${env.base}/tv/package.json`, { headers: AUTH })).status, 404);
+  assert.equal((await fetch(`${env.base}/tv/..%2Fpackage.json`, { headers: AUTH })).status, 404);
+  assert.equal((await fetch(`${env.base}/tv/%2e%2e/src/config.js`, { headers: AUTH })).status, 404);
+});
+
+test('TV routes allow cross-origin reads (packaged TV apps), admin routes do not', async (t) => {
+  const env = await setup(); t.after(env.close);
+  await env.sync.sync();
+  assert.equal((await fetch(`${env.base}/tv/ads.json`)).headers.get('access-control-allow-origin'), '*');
+  env.google.media.set('img1', Buffer.alloc(10));
+  assert.equal((await fetch(`${env.base}/api/ads/img1/content`)).headers.get('access-control-allow-origin'), '*');
+  assert.equal((await fetch(`${env.base}/api/status`, { headers: AUTH })).headers.get('access-control-allow-origin'), null);
 });

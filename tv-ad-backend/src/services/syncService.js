@@ -2,10 +2,9 @@ import { FOLDER_MIME, PUBLISHED_FILES } from '../config.js';
 import { AppError } from '../lib/errors.js';
 import { buildManifest } from '../manifest/buildManifest.js';
 import { validateManifest } from '../manifest/validate.js';
-import { renderIndexHtml } from '../manifest/renderIndexHtml.js';
 
 /**
- * Scan Drive -> build ads.json + index.html -> publish to Drive only if the revision changed.
+ * Scan Drive -> build ads.json -> publish to Drive only if the revision changed.
  * Runs on a timer (SYNC_INTERVAL_SEC) and on demand (upload, "Sync now").
  */
 export function createSyncService({ config, reader, writer, store, log = console, now = () => new Date() }) {
@@ -19,7 +18,6 @@ export function createSyncService({ config, reader, writer, store, log = console
     lastError: null,
     warning: null,
     manifest: null,
-    indexHtml: null,
   };
   let queue = Promise.resolve();
   let timer = null;
@@ -73,7 +71,6 @@ export function createSyncService({ config, reader, writer, store, log = console
     state.source = source;
     state.publishedRevision = null;
     state.manifest = null;
-    state.indexHtml = null;
     state.warning = null;
     state.lastError = null;
     await persist();
@@ -90,25 +87,22 @@ export function createSyncService({ config, reader, writer, store, log = console
       try {
         const manifest = await scan();
         state.manifest = manifest;
-        state.indexHtml = renderIndexHtml(manifest);
         state.lastScanAt = now().toISOString();
 
         const changed = manifest.revision !== state.publishedRevision;
         let published = false;
         state.warning = null;
         if (publishingStatus().enabled && (changed || force)) {
-          // Optional copy of ads.json/index.html in Drive. The TV does not read it, so a failure here
+          // Optional copy of ads.json in Drive. The TV does not read it, so a failure here
           // (for example a view-only folder) is reported as a warning and never blocks the scan.
           try {
-            // Page first, manifest last: once ads.json shows a new revision, index.html is already in place.
-            await writer.upsertTextFile(state.source.folderId, PUBLISHED_FILES.page, 'text/html', state.indexHtml);
             await writer.upsertTextFile(state.source.folderId, PUBLISHED_FILES.manifest, 'application/json', `${JSON.stringify(manifest, null, 2)}\n`);
             state.publishedRevision = manifest.revision;
             state.lastPublishAt = now().toISOString();
             await persist();
             published = true;
           } catch (err) {
-            state.warning = `Could not save ads.json/index.html to Drive: ${err.message}${err.hint ? ` (${err.hint})` : ''}. Playback is not affected.`;
+            state.warning = `Could not save ads.json to Drive: ${err.message}${err.hint ? ` (${err.hint})` : ''}. Playback is not affected.`;
             log.error(`[sync:${reason}] publish to Drive failed: ${err.message}`);
           }
         }
@@ -171,6 +165,5 @@ export function createSyncService({ config, reader, writer, store, log = console
     stop,
     getStatus,
     getManifest: () => state.manifest,
-    getIndexHtml: () => state.indexHtml,
   };
 }

@@ -11,6 +11,7 @@ export const MEDIA_TYPES = {
 };
 
 // Files the backend writes into the main folder; the scanner ignores them.
+// ads.json is the optional Drive copy; index.html is ignored by the scanner because older versions published it.
 export const PUBLISHED_FILES = { manifest: 'ads.json', page: 'index.html' };
 
 const ID_PATTERN = /^[A-Za-z0-9_-]{10,}$/;
@@ -45,6 +46,7 @@ export function loadConfig(env = process.env) {
     maxUploadMb: num('MAX_UPLOAD_MB', 500, 1),
     // Off by default: the TV reads the backend, not Drive. Turn on to also keep ads.json/index.html copies in the folder.
     publishToDrive: env.PUBLISH_TO_DRIVE === 'true',
+    webCoreDir: env.WEB_CORE_DIR || fileURLToPath(new URL('../../web-core/', import.meta.url)),
     dataDir: env.DATA_DIR || fileURLToPath(new URL('../data/', import.meta.url)),
     // Overridable so tests can point at a fake Google server.
     urls: {

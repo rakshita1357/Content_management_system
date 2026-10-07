@@ -1,7 +1,7 @@
 # TV ad display: backend (Phase 1)
 
-Scans a Google Drive folder (one subfolder per ad), builds `ads.json` and the TV page, and serves both
-to the TV at `/tv`. It re-checks every 5 minutes and has an admin page for uploading ads. Requires Node.js 22 or newer. No npm packages needed.
+Scans a Google Drive folder (one subfolder per ad), builds `ads.json`, and serves it and the TV page
+to the TV at `/tv/`. It re-checks every 5 minutes and has an admin page for uploading ads. Requires Node.js 22 or newer. No npm packages needed.
 
 ## Setup in short
 1. Drive: create a folder (or use one your Google account can open). You will paste its link in the admin page (step 5).
@@ -34,28 +34,31 @@ The page asks for the admin login first when `ADMIN_PASSWORD` is set. A folder c
 
 `/admin` is the separate management page (upload, Sync now, view `ads.json`). Its "Change" link goes back to the front page.
 
-## The TV page (the "browser part")
-- Open `http://<backend-address>:8080/tv` on the TV (or any browser). No login needed.
+## The TV page (`web-core/`)
+The TV page is a set of plain static files in `../web-core/` (`index.html`, `app.css`, `player.js`, `config.js`). The backend serves them at `http://<backend-address>:8080/tv/` with no login, and a packaged TV app (webOS, Android TV) can bundle the very same folder. Nothing in it is generated per ad list: the page loads `/tv/ads.json` when it opens.
 - It shows the run-order table first, with a 10 second countdown, then the fullscreen player starts. Press Enter on "Start playing" to start sooner.
 - Playback: ads in run order, images for `IMAGE_DURATION_SEC` (60), videos until they end, then back to the first ad.
 - Keys: Esc / Back / the small X (bottom-right) return to the table; Left/Right skip to the previous/next ad.
 - The green/red Wi-Fi icon (bottom-left) shows whether the TV can reach the backend.
-- The page checks `/tv/ads.json` every sync interval and switches to a new revision at the next ad change.
+- The page re-reads `/tv/ads.json` every sync interval and switches to a new revision at the next ad change.
+- If the backend cannot be reached, or no folder is connected yet, the page says so and retries every 10 seconds.
 - Media is streamed through `/api/ads/:id/content`, so no Google key reaches the browser. Only ads listed in `ads.json` are served.
-- The TV should always open `/tv` from the backend. An `index.html` copy in Drive (optional, see below) is only a reference snapshot.
+- **Different origin:** `config.js` holds `apiBase`. Empty means "the server that served this page". A packaged app sets it to the backend address, for example `window.TV_CONFIG = { apiBase: 'http://192.168.1.20:8080' };`. The TV routes send `Access-Control-Allow-Origin: *` so this works.
+- Keep `player.js` and `config.js` plain ES5 (no arrow functions, `let`/`const`, template strings); a test enforces it for old webOS browsers.
+- If you deploy only the `tv-ad-backend` folder, point `WEB_CORE_DIR` at a copy of `web-core/`.
 
 ## Who reads what
 - The backend scans and streams as the signed-in Google account (OAuth). The TV only talks to the backend.
 - Without OAuth the backend falls back to `DRIVE_API_KEY`, which only sees folders shared as "Anyone with the link: Viewer". A private folder then looks empty (0 ads).
-- By default the backend does not write anything to Drive except uploads. Set `PUBLISH_TO_DRIVE=true` to also keep copies of `ads.json` and `index.html` in the folder (needs edit access; if that fails the admin page shows a warning and playback is unaffected).
-- `/tv/ads.json` and the TV page do not include the Drive folder ID.
+- By default the backend does not write anything to Drive except uploads. Set `PUBLISH_TO_DRIVE=true` to also keep a copy of `ads.json` in the folder (needs edit access; if that fails the admin page shows a warning and playback is unaffected). The TV does not read that copy. Older versions also saved an `index.html` there; the scanner ignores it and you can delete it.
+- `/tv/ads.json` does not include the Drive folder ID.
 
 ## Rules the scanner follows
 - Each subfolder of the main folder is one ad. Files directly in the main folder are ignored.
 - Supported formats: MP4, JPG, PNG. Everything else is listed under "not playing" with the reason.
 - Play order is oldest upload first, across all ads.
 - Images show for `IMAGE_DURATION_SEC`. Videos play to the end; their length shows once Drive has processed them.
-- `ads.json` and `index.html` are rewritten only when the content changes (see `revision`).
+- The Drive copy of `ads.json` (if enabled) is rewritten only when the content changes (see `revision`).
 
 ## Layout
 ```
@@ -65,10 +68,11 @@ src/drive/oauth.js             refresh token -> access token
 src/drive/writer.js            creates folders, overwrites ads.json/index.html, streams uploads
 src/manifest/buildManifest.js  Drive listing -> ads.json (pure function)
 src/manifest/validate.js       checks ads.json before publishing
-src/manifest/renderIndexHtml.js  ads.json -> TV start page (ES5, works on old webOS)
 src/services/syncService.js    scan, compare revision, publish, 5-minute timer
 src/services/uploadService.js  checks uploads and puts them in the right subfolder
 src/app.js                     HTTP routes and login
-public/admin.html              admin page
+public/start.html              front page: one box for the Drive folder link
+public/admin.html              admin page (upload, Sync now)
+../web-core/                   the TV page: index.html, app.css, player.js, config.js (shared with TV wrappers)
 docs/ads.schema.json           ads.json format
 ```
