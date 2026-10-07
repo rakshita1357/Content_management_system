@@ -20,6 +20,12 @@ an admin page for uploading ads. Requires Node.js 22 or newer. No npm packages n
 | `npm start` | Starts the backend and the admin page, and syncs every `SYNC_INTERVAL_SEC`. |
 | `npm test` | Unit and end-to-end tests against a fake Drive. No internet needed. |
 
+## Who reads what
+- The backend scan and sync run as the signed-in Google account (OAuth) when `GOOGLE_REFRESH_TOKEN` is set, so a private folder is scanned correctly.
+- Without OAuth the scan falls back to the API key, which only sees folders shared as "Anyone with the link: Viewer". A private folder then looks empty (0 ads).
+- The TV itself only has the API key, so the folder must still be shared as "Anyone with the link: Viewer" for playback. The admin page shows a red warning if it is not.
+- `npm run scan` is key-only on purpose: it shows what the TV can see.
+
 ## Rules the scanner follows
 - Each subfolder of the main folder is one ad. Files directly in the main folder are ignored.
 - Supported formats: MP4, JPG, PNG. Everything else is listed under "not playing" with the reason.

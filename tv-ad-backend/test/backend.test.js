@@ -17,9 +17,9 @@ import { ROOT_ID, sampleDrive } from './fixtures.js';
 const quiet = { info() {}, error() {} };
 const AUTH = { Authorization: `Basic ${Buffer.from('admin:secret').toString('base64')}` };
 
-async function setup({ apiKey = 'good-key', withOAuth = true } = {}) {
+async function setup({ apiKey = 'good-key', withOAuth = true, publicVisible = true } = {}) {
   const drive = sampleDrive();
-  const google = await startFakeGoogle({ apiKey: 'good-key', root: drive.root, children: drive.children, rootId: ROOT_ID });
+  const google = await startFakeGoogle({ apiKey: 'good-key', root: drive.root, children: drive.children, rootId: ROOT_ID, publicVisible });
   const dataDir = await mkdtemp(path.join(os.tmpdir(), 'tvads-'));
   const config = loadConfig({
     DRIVE_FOLDER_ID: ROOT_ID, DRIVE_API_KEY: apiKey, ADMIN_PASSWORD: 'secret', MAX_UPLOAD_MB: '1', DATA_DIR: dataDir,
@@ -28,7 +28,7 @@ async function setup({ apiKey = 'good-key', withOAuth = true } = {}) {
   });
   const tokens = createTokenProvider(config);
   const writer = tokens.isConfigured() ? createDriveWriter(config, tokens) : null;
-  const sync = createSyncService({ config, reader: createPublicReader(config), writer, store: createStateStore(dataDir), log: quiet });
+  const sync = createSyncService({ config, reader: createPublicReader(config, tokens), writer, store: createStateStore(dataDir), log: quiet });
   await sync.init();
   const app = createApp({ config, sync, uploads: createUploadService({ config, writer, sync }), log: quiet });
   await new Promise((r) => app.listen(0, '127.0.0.1', r));
@@ -102,7 +102,7 @@ test('without OAuth: scanning works, publishing and uploads are off', async (t) 
 });
 
 test('a bad API key surfaces a fix-it hint in status', async (t) => {
-  const env = await setup({ apiKey: 'wrong' }); t.after(env.close);
+  const env = await setup({ apiKey: 'wrong', withOAuth: false }); t.after(env.close);
   await assert.rejects(env.sync.sync());
   const status = await (await fetch(`${env.base}/api/status`, { headers: AUTH })).json();
   assert.match(status.lastError.hint, /DRIVE_API_KEY/);
@@ -113,4 +113,38 @@ test('published revision survives a restart (no needless re-upload)', async (t) 
   await env.sync.sync();
   const store = createStateStore(env.dataDir);
   assert.equal((await store.load()).publishedRevision, env.sync.getStatus().publishedRevision);
+});
+
+test('private folder: scan runs as the signed-in account, so ads are found, and status warns the TV cannot see it', async (t) => {
+  const env = await setup({ publicVisible: false }); t.after(env.close);
+  const result = await env.sync.sync();
+  assert.equal(result.totalAds, 3);
+  assert.equal(result.published, true);
+  const status = await (await fetch(`${env.base}/api/status`, { headers: AUTH })).json();
+  assert.match(status.warning, /Anyone with the link/);
+});
+
+test('public folder: no warning', async (t) => {
+  const env = await setup(); t.after(env.close);
+  await env.sync.sync();
+  assert.equal(env.sync.getStatus().warning, null);
+});
+
+test('without OAuth, a private folder still scans as 0 ads (key-only reader)', async (t) => {
+  const env = await setup({ publicVisible: false, withOAuth: false }); t.after(env.close);
+  assert.equal((await env.sync.sync()).totalAds, 0);
+});
+
+test('end to end on a private folder: upload anime/ad1.jpg appears in Run order, ads.json and index.html', async (t) => {
+  const env = await setup({ publicVisible: false }); t.after(env.close);
+  await env.sync.sync();
+  const up = await fetch(`${env.base}/api/upload?adName=anime&fileName=ad1.jpg`, { method: 'PUT', headers: { ...AUTH, 'Content-Type': 'image/jpeg' }, body: Buffer.alloc(500, 1) });
+  assert.equal(up.status, 201);
+  const ad = (await (await fetch(`${env.base}/api/ads`, { headers: AUTH })).json()).ads.find((a) => a.fileName === 'ad1.jpg');
+  assert.equal(ad.adName, 'anime');
+  assert.equal(ad.type, 'image');
+  assert.equal(ad.durationSec, 60);
+  const published = JSON.parse(env.google.bodies.get(fileByName(env.google, 'ads.json').id));
+  assert.ok(published.ads.some((a) => a.adName === 'anime' && a.fileName === 'ad1.jpg'));
+  assert.match(env.google.bodies.get(fileByName(env.google, 'index.html').id), /ad1\.jpg/);
 });

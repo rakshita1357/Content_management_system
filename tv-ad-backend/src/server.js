@@ -20,8 +20,8 @@ const log = {
   error: (m) => console.error(`${new Date().toISOString()} ${m}`),
 };
 
-const reader = createPublicReader(config);
 const tokens = createTokenProvider(config);
+const reader = createPublicReader(config, tokens);
 const writer = tokens.isConfigured() ? createDriveWriter(config, tokens) : null;
 const sync = createSyncService({ config, reader, writer, store: createStateStore(config.dataDir), log });
 const uploads = createUploadService({ config, writer, sync });
