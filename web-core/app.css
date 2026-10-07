@@ -43,6 +43,8 @@ td.c-file{color:#b8c7d4;word-break:break-all}
 #start:focus{outline:0.25rem solid #fff}
 .wifi{position:fixed;left:1.2rem;bottom:1rem;width:2.2rem;height:2.2rem;z-index:30;color:#3ddc84}
 .wifi.off{color:#ff4d4d}
+.mute{position:fixed;left:3.9rem;bottom:1rem;width:2.2rem;height:2.2rem;z-index:30;color:#f5b841}
+.mute svg{width:100%;height:100%;display:block}
 .wifi svg{width:100%;height:100%;display:block}
 #player-root{position:fixed;top:0;left:0;width:100%;height:100%;background:#000;z-index:20;cursor:none}
 #stage{position:absolute;top:0;left:0;width:100%;height:100%}

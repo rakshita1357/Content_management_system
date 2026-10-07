@@ -81,7 +81,7 @@
     showWifi();
 
     // ---- player: each ad in order, then back to the first
-    var active = false, idx = -1, timer = null, watchdog = null, failures = 0, pending = null, autoLeft = 0, autoTimer = null;
+    var active = false, inHistory = false, idx = -1, timer = null, watchdog = null, failures = 0, pending = null, autoLeft = 0, autoTimer = null;
 
     function clearStage() {
       clearTimeout(timer); clearTimeout(watchdog);
@@ -117,6 +117,7 @@
     }
     function play(ad) {
       clearStage();
+      $('mute').hidden = true;
       var stage = $('stage');
       if (ad.type === 'image') {
         var img = document.createElement('img');
@@ -138,8 +139,10 @@
       var p = v.play();
       if (p && p.catch) {
         p.catch(function () {
-          // Autoplay with sound can be blocked before the first key press: retry muted.
+          // Autoplay with sound can be blocked before the first key press: retry muted and show the
+          // small speaker icon. Pressing OK (or any key) on the remote turns the sound on.
           v.muted = true;
+          $('mute').hidden = false;
           var q = v.play();
           if (q && q.catch) q.catch(function () {});
         });
@@ -153,11 +156,23 @@
       $('player-root').hidden = false;
       document.body.style.overflow = 'hidden';
       fullscreen(true);
-      $('exit').focus();
+      // No button keeps focus while playing, so pressing OK on the remote cannot press the X by accident.
+      if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+      try { history.pushState({ adPlayer: true }, ''); inHistory = true; } catch (e) {}
       next();
     }
+    function userGesture() {
+      // A key press or click is the browser's permission to go fullscreen and to play with sound.
+      var d = document;
+      if (!(d.fullscreenElement || d.webkitFullscreenElement)) fullscreen(true);
+      var v = $('stage').getElementsByTagName('video')[0];
+      if (v && v.muted) { v.muted = false; var q = v.play(); if (q && q.catch) q.catch(function () {}); }
+      $('mute').hidden = true;
+    }
     function stopPlayer() {
+      if (!active) return;
       active = false;
+      if (inHistory) { inHistory = false; try { history.back(); } catch (e) {} }
       clearStage();
       $('player-root').hidden = true;
       document.body.style.overflow = '';
@@ -191,11 +206,22 @@
     document.addEventListener('keydown', function (e) {
       var k = e.keyCode;
       if (active) {
-        if (k === 27 || k === 8 || k === 461 || k === 10009) { e.preventDefault(); stopPlayer(); }
-        else if (k === 39) { go(idx + 1); }
+        // Back: Esc, Backspace, Android TV / browser Back, webOS (461) and Tizen (10009) remotes.
+        var back = k === 27 || k === 8 || k === 4 || k === 461 || k === 10009 ||
+          e.key === 'GoBack' || e.key === 'BrowserBack' || e.key === 'Escape';
+        if (back) { e.preventDefault(); stopPlayer(); return; }
+        if (k === 40) { e.preventDefault(); $('exit').focus(); return; }          // Down: reach the X
+        if (k === 38) { e.preventDefault(); $('exit').blur(); return; }
+        if (k === 13 && document.activeElement === $('exit')) return;             // OK on the X exits
+        userGesture();
+        if (k === 39) { go(idx + 1); }
         else if (k === 37) { go(idx - 1); }
+        else if (k === 13) { e.preventDefault(); }
       } else if (autoTimer) { stopAuto(); }
     });
+    // The Back button of the browser/remote returns from the player to the table.
+    window.addEventListener('popstate', function () { if (active) { inHistory = false; stopPlayer(); } });
+    $('player-root').onclick = function (e) { if (e.target !== $('exit')) userGesture(); };
 
     renderBoard();
     window.ADS_PLAYER = { start: startPlayer, stop: stopPlayer };

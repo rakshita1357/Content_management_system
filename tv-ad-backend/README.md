@@ -47,6 +47,15 @@ The TV page is a set of plain static files in `../web-core/` (`index.html`, `app
 - Keep `player.js` and `config.js` plain ES5 (no arrow functions, `let`/`const`, template strings); a test enforces it for old webOS browsers.
 - If you deploy only the `tv-ad-backend` folder, point `WEB_CORE_DIR` at a copy of `web-core/`.
 
+## Trying it on an Android TV
+1. Put the TV and the computer running the backend on the same Wi-Fi/network.
+2. Run `npm start`. The log prints a line like `Open this on the TV (same Wi-Fi/network): http://192.168.1.20:8080/tv/`. On Windows, allow Node.js through the firewall for private networks when asked.
+3. On the computer, open `http://localhost:8080/`, paste the Drive folder link and press Submit.
+4. In the TV's browser, open the address from step 2. (`localhost` only works on the computer itself.) Give the computer a fixed IP address, or the address can change after a restart.
+5. Remote control: **OK** on "Start playing", then the ads run. **OK** during playback turns the sound on and goes fullscreen (browsers only allow sound after a key press). **Left/Right** skip. **Back** returns to the table. **Down** then **OK** presses the X. Pressing OK does not exit by accident.
+
+A browser tab is for testing. For a TV that runs on its own, an installed Android TV app (a thin wrapper that loads `web-core/`, can start on boot, and keeps the screen awake) is the later step.
+
 ## Who reads what
 - The backend scans and streams as the signed-in Google account (OAuth). The TV only talks to the backend.
 - Without OAuth the backend falls back to `DRIVE_API_KEY`, which only sees folders shared as "Anyone with the link: Viewer". A private folder then looks empty (0 ads).

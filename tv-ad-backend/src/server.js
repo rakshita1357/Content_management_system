@@ -1,3 +1,4 @@
+import os from 'node:os';
 import { loadConfig } from './config.js';
 import { createApp } from './app.js';
 import { createPublicReader } from './drive/publicReader.js';
@@ -34,7 +35,10 @@ server.requestTimeout = 0; // large video uploads can take longer than Node's de
 
 server.listen(config.port, () => {
   log.info(`Start page (paste a Drive folder link): http://localhost:${config.port}/`);
-  log.info(`TV page: http://localhost:${config.port}/tv    Admin page: http://localhost:${config.port}/admin`);
+  log.info(`TV page: http://localhost:${config.port}/tv/    Admin page: http://localhost:${config.port}/admin`);
+  const lan = Object.values(os.networkInterfaces()).flat().filter((n) => n && n.family === 'IPv4' && !n.internal).map((n) => n.address);
+  for (const ip of lan) log.info(`Open this on the TV (same Wi-Fi/network): http://${ip}:${config.port}/tv/`);
+  if (!lan.length) log.info('No network address found. The TV can only reach this backend over a network.');
   if (!config.adminPassword) log.info('Warning: ADMIN_PASSWORD is empty, so the admin page has no login.');
   if (!writer) log.info('Drive write access is not set up: scanning and preview work, publishing and uploads are off.');
   sync.start();
