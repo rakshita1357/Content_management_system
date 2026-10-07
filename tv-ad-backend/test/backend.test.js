@@ -548,7 +548,7 @@ test('health reports sync state without exposing details; three failures in a ro
   const env = await setupFast(); t.after(env.close);
   await env.sync.sync();
   let health = await (await fetch(`${env.base}/api/health`)).json();
-  assert.deepEqual(Object.keys(health).sort(), ['ads', 'lastSuccessAt', 'needsSetup', 'ok', 'revision', 'syncOk']);
+  assert.deepEqual(Object.keys(health).sort(), ['ads', 'lastSuccessAt', 'needsSetup', 'ok', 'revision', 'syncOk', 'version', 'webVersion']);
   assert.equal(health.ads, 3);
   assert.equal(health.syncOk, true);
   env.google.server.fault = { status: 500, count: 1000 };

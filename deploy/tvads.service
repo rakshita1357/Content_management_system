@@ -1,0 +1,24 @@
+# systemd unit for the TV ads backend (Linux). Install: see deploy/README.md
+[Unit]
+Description=TV ads backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tvads
+WorkingDirectory=/opt/tvads/tv-ad-backend
+EnvironmentFile=/opt/tvads/tv-ad-backend/.env
+ExecStart=/usr/bin/node src/server.js
+# If the backend ever stops unexpectedly it is started again after 5 seconds. Its state is in data/ and written safely.
+Restart=always
+RestartSec=5
+# The backend needs very little: it only writes into its own data folder.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/tvads/tv-ad-backend/data
+
+[Install]
+WantedBy=multi-user.target

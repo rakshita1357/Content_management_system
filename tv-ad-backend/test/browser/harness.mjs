@@ -23,6 +23,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const WEB_CORE = path.resolve(here, '../../../web-core');
 export const ROOT_ID = 'DRIVE_A_ROOT_FOLDER_1234';
 export const FOLDER = 'application/vnd.google-apps.folder';
+export const WEB_CORE_DIR = WEB_CORE;
 
 export function loadPlaywright() {
   const require = createRequire(import.meta.url);
@@ -71,13 +72,14 @@ export function buildDrive(google) {
   return { add, folder };
 }
 
-export async function startBackend({ google, dataDir, port = 0, source = null, imageSec = 2, syncSec = 30 }) {
+export async function startBackend({ google, dataDir, port = 0, source = null, imageSec = 2, syncSec = 30, webCoreDir = '' }) {
   const config = loadConfig({
     DRIVE_API_KEY: 'k', DATA_DIR: dataDir, IMAGE_DURATION_SEC: String(imageSec), SYNC_INTERVAL_SEC: String(syncSec),
     GOOGLE_CLIENT_ID: 'i', GOOGLE_CLIENT_SECRET: 's', GOOGLE_REFRESH_TOKEN: 'r', PORT: String(port || 8080),
     GOOGLE_RETRIES: '0', GOOGLE_RETRY_BASE_MS: '5', GOOGLE_TIMEOUT_MS: '2000',
     DRIVE_API_BASE: `${google.base}/drive/v3`, DRIVE_UPLOAD_BASE: `${google.base}/upload/drive/v3`, GOOGLE_TOKEN_URL: `${google.base}/token`,
     ...(source ? { DRIVE_FOLDER_ID: source } : {}),
+    ...(webCoreDir ? { WEB_CORE_DIR: webCoreDir } : {}),
   });
   const tokens = createTokenProvider(config);
   const writer = createDriveWriter(config, tokens);
@@ -112,13 +114,13 @@ export async function startShell(apiBase, cacheMaxMb = 0) {
 }
 
 // Everything for one test, torn down afterwards.
-export async function createEnv({ source = ROOT_ID, imageSec = 2, cacheMaxMb = 0 } = {}) {
+export async function createEnv({ source = ROOT_ID, imageSec = 2, cacheMaxMb = 0, webCoreDir = '' } = {}) {
   const pw = loadPlaywright();
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tvdata-'));
   const sourceInfo = { folderId: ROOT_ID };
   const google = await startFakeGoogle({ apiKey: 'k', root: [], children: new Map(), rootId: ROOT_ID, rootName: 'Drive A' });
   const drive = buildDrive(google);
-  let backend = await startBackend({ google, dataDir, source, imageSec });
+  let backend = await startBackend({ google, dataDir, source, imageSec, webCoreDir });
   if (source) await backend.sync.sync();
   const shell = await startShell(backend.base, cacheMaxMb);
   const chromePath = process.env.PLAYWRIGHT_CHROMIUM || (fs.existsSync('/opt/pw-browsers/chromium') ? '/opt/pw-browsers/chromium' : undefined);
@@ -130,7 +132,7 @@ export async function createEnv({ source = ROOT_ID, imageSec = 2, cacheMaxMb = 0
     async restartBackend({ keepDrive = true } = {}) {
       const { port } = backend;
       await backend.close();
-      backend = await startBackend({ google, dataDir, port, source: null, imageSec });
+      backend = await startBackend({ google, dataDir, port, source: null, imageSec, webCoreDir });
       await backend.sync.init?.();
       return backend;
     },

@@ -1,0 +1,9 @@
+# https in front of the backend, with a free certificate (Caddy gets and renews it by itself).
+# Needs a public name that points at this computer. Replace ads.example.com. In .env set TRUST_PROXY=true
+# and keep the backend itself private (HOST=127.0.0.1).
+ads.example.com {
+	request_body {
+		max_size 600MB   # the admin page uploads videos up to MAX_UPLOAD_MB
+	}
+	reverse_proxy 127.0.0.1:8080
+}

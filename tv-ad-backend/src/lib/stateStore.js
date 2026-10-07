@@ -11,13 +11,23 @@ async function writeAtomic(file, text) {
 
 // Remembers what the backend needs after a restart: which folder, what was last published, and the
 // last good ad list (so TVs can still load ads if Drive or the internet is down when the backend starts).
-export function createStateStore(dataDir) {
+export function createStateStore(dataDir, log = null) {
   const stateFile = path.join(dataDir, 'state.json');
   const manifestFile = path.join(dataDir, 'manifest.json');
   const readJson = async (file) => {
+    let raw;
     try {
-      return JSON.parse(await readFile(file, 'utf8'));
+      raw = await readFile(file, 'utf8');
     } catch {
+      return null;   // not there yet
+    }
+    try {
+      return JSON.parse(raw);
+    } catch {
+      // Damaged (for example a disk problem): keep the evidence, start clean, and say so.
+      const kept = `${file}.damaged-${Date.now()}`;
+      await rename(file, kept).catch(() => {});
+      if (log) log.warn(`${path.basename(file)} could not be read and was moved to ${path.basename(kept)}; starting without it.`);
       return null;
     }
   };
