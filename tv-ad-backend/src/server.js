@@ -27,7 +27,7 @@ const sync = createSyncService({ config, reader, writer, store: createStateStore
 const uploads = createUploadService({ config, writer, sync });
 
 await sync.init();
-const server = createApp({ config, sync, uploads, log });
+const server = createApp({ config, sync, uploads, reader, log });
 server.requestTimeout = 0; // large video uploads can take longer than Node's default 5 minutes
 
 server.listen(config.port, () => {

@@ -21,7 +21,7 @@ test('sets durations: images fixed, videos from Drive or null', () => {
   assert.equal(img.durationSec, 60);
   assert.equal(vid.durationSec, 30.5);
   assert.equal(unprocessed.durationSec, null);
-  assert.equal(img.src, 'https://www.googleapis.com/drive/v3/files/img1?alt=media');
+  assert.equal(img.src, '/api/ads/img1/content');
 });
 
 test('skips root files, unsupported types and nested folders, but not its own outputs', () => {

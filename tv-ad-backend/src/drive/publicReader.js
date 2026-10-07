@@ -35,7 +35,20 @@ export function createPublicReader({ apiKey, urls }, tokens = null, fetchImpl = 
     } while (pageToken);
     return files;
   }
+  // Opens a media file for streaming to the TV. Passes the Range header through so video can seek.
+  async function openMedia(fileId, range, signal) {
+    const headers = {};
+    if (range) headers.Range = range;
+    const params = new URLSearchParams({ alt: 'media', supportsAllDrives: 'true' });
+    if (useOAuth) headers.Authorization = `Bearer ${await tokens.getAccessToken()}`;
+    else params.set('key', apiKey);
+    const res = await fetchImpl(`${urls.driveApi}/files/${encodeURIComponent(fileId)}?${params}`, { headers, signal });
+    if (!res.ok && res.status !== 416) throw await driveError(res, 'read the media file');
+    return res;
+  }
+
   return {
+    openMedia,
     usesOAuth: useOAuth,
     listChildren: (folderId) => list(folderId, useOAuth),
     listChildrenPublic: (folderId) => list(folderId, false),

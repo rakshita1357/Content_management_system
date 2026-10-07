@@ -28,9 +28,10 @@ async function setup({ apiKey = 'good-key', withOAuth = true, publicVisible = tr
   });
   const tokens = createTokenProvider(config);
   const writer = tokens.isConfigured() ? createDriveWriter(config, tokens) : null;
-  const sync = createSyncService({ config, reader: createPublicReader(config, tokens), writer, store: createStateStore(dataDir), log: quiet });
+  const reader = createPublicReader(config, tokens);
+  const sync = createSyncService({ config, reader, writer, store: createStateStore(dataDir), log: quiet });
   await sync.init();
-  const app = createApp({ config, sync, uploads: createUploadService({ config, writer, sync }), log: quiet });
+  const app = createApp({ config, sync, uploads: createUploadService({ config, writer, sync }), reader, log: quiet });
   await new Promise((r) => app.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${app.address().port}`;
   const close = async () => { app.close(); google.server.close(); await rm(dataDir, { recursive: true, force: true }); };
@@ -147,4 +148,48 @@ test('end to end on a private folder: upload anime/ad1.jpg appears in Run order,
   const published = JSON.parse(env.google.bodies.get(fileByName(env.google, 'ads.json').id));
   assert.ok(published.ads.some((a) => a.adName === 'anime' && a.fileName === 'ad1.jpg'));
   assert.match(env.google.bodies.get(fileByName(env.google, 'index.html').id), /ad1\.jpg/);
+});
+
+test('TV routes need no login: /tv page, /tv/ads.json, health', async (t) => {
+  const env = await setup(); t.after(env.close);
+  await env.sync.sync();
+  const page = await fetch(`${env.base}/tv`);
+  assert.equal(page.status, 200);
+  const html = await page.text();
+  assert.match(html, /id="player-root"/);
+  assert.match(html, /id="start"/);
+  const m = await (await fetch(`${env.base}/tv/ads.json`)).json();
+  assert.equal(m.ads.length, 3);
+  assert.equal((await fetch(`${env.base}/api/health`)).status, 200);
+  // admin-only routes still need login
+  assert.equal((await fetch(`${env.base}/api/ads`)).status, 401);
+  assert.equal((await fetch(`${env.base}/api/sync`, { method: 'POST' })).status, 401);
+});
+
+test('media is streamed through the backend with Range support, only for ads in ads.json', async (t) => {
+  const env = await setup({ publicVisible: false }); t.after(env.close);
+  await env.sync.sync();
+  const bytes = Buffer.from('0123456789'.repeat(100));
+  env.google.media.set('vid1', bytes);
+  const full = await fetch(`${env.base}/api/ads/vid1/content`);
+  assert.equal(full.status, 200);
+  assert.equal(full.headers.get('content-type'), 'video/mp4');
+  assert.equal(Buffer.from(await full.arrayBuffer()).length, 1000);
+  const part = await fetch(`${env.base}/api/ads/vid1/content`, { headers: { Range: 'bytes=10-19' } });
+  assert.equal(part.status, 206);
+  assert.equal(part.headers.get('content-range'), 'bytes 10-19/1000');
+  assert.equal(Buffer.from(await part.arrayBuffer()).toString(), '0123456789');
+  // an id that is not in ads.json is never proxied
+  assert.equal((await fetch(`${env.base}/api/ads/not-an-ad/content`)).status, 404);
+  // no Google credentials in anything the TV can read
+  const m = await (await fetch(`${env.base}/tv/ads.json`)).text();
+  assert.doesNotMatch(m, /googleapis|key=|Bearer/);
+});
+
+test('GET /api/ads/:id returns one ad (admin login)', async (t) => {
+  const env = await setup(); t.after(env.close);
+  await env.sync.sync();
+  const ad = await (await fetch(`${env.base}/api/ads/img1`, { headers: AUTH })).json();
+  assert.equal(ad.fileName, 'poster.jpg');
+  assert.equal((await fetch(`${env.base}/api/ads/img1`)).status, 401);
 });

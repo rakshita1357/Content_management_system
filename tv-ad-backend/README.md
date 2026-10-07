@@ -20,6 +20,16 @@ an admin page for uploading ads. Requires Node.js 22 or newer. No npm packages n
 | `npm start` | Starts the backend and the admin page, and syncs every `SYNC_INTERVAL_SEC`. |
 | `npm test` | Unit and end-to-end tests against a fake Drive. No internet needed. |
 
+## The TV page (the "browser part")
+- Open `http://<backend-address>:8080/tv` on the TV (or any browser). No login needed.
+- It shows the run-order table first, with a 10 second countdown, then the fullscreen player starts. Press Enter on "Start playing" to start sooner.
+- Playback: ads in run order, images for `IMAGE_DURATION_SEC` (60), videos until they end, then back to the first ad.
+- Keys: Esc / Back / the small X (bottom-right) return to the table; Left/Right skip to the previous/next ad.
+- The green/red Wi-Fi icon (bottom-left) shows whether the TV can reach the backend.
+- The page checks `/tv/ads.json` every sync interval and switches to a new revision at the next ad change.
+- Media is streamed through `/api/ads/:id/content`, so no Google key reaches the browser. Only ads listed in `ads.json` are served.
+- The `index.html` copy published to Drive is a snapshot for reference; the TV should open `/tv` from the backend.
+
 ## Who reads what
 - The backend scan and sync run as the signed-in Google account (OAuth) when `GOOGLE_REFRESH_TOKEN` is set, so a private folder is scanned correctly.
 - Without OAuth the scan falls back to the API key, which only sees folders shared as "Anyone with the link: Viewer". A private folder then looks empty (0 ads).
