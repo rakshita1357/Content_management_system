@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 import { FOLDER_MIME, MEDIA_TYPES, PUBLISHED_FILES } from '../config.js';
 
 export const SCHEMA_VERSION = 1;
-const MEDIA_URL = 'https://www.googleapis.com/drive/v3/files';
 
 const positive = (v) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : null);
 
@@ -25,12 +24,18 @@ function toAd(file, folder, imageDurationSec) {
     height: positive(meta.height),
     createdTime: file.createdTime,
     modifiedTime: file.modifiedTime,
-    // The player appends "&key=<API key>" when downloading.
-    src: `${MEDIA_URL}/${file.id}?alt=media`,
+    // The backend streams the file (no Google credentials ever reach the TV).
+    src: `/api/ads/${file.id}/content`,
   };
 }
 
 // The revision changes only when something the TV cares about changes (not on every scan).
+// What the TV and other public readers get: the manifest without Drive-specific details.
+export function publicManifest(manifest) {
+  const { source, ...rest } = manifest;
+  return rest;
+}
+
 export function computeRevision(manifest) {
   const { generatedAt, revision, ...rest } = manifest;
   return createHash('sha256').update(JSON.stringify(rest)).digest('hex').slice(0, 12);

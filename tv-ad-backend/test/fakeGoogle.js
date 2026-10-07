@@ -8,6 +8,7 @@ export function startFakeGoogle({ apiKey, root, children, rootId, publicVisible 
   root.forEach((f) => add(f, rootId));
   for (const [pid, list] of children) list.forEach((f) => add(f, pid));
   const bodies = new Map();
+  const media = new Map(); // file id -> Buffer served for alt=media
   const calls = [];
   let seq = 0;
   let clock = Date.parse('2026-10-01T00:00:00Z');
@@ -21,6 +22,17 @@ export function startFakeGoogle({ apiKey, root, children, rootId, publicVisible 
     calls.push(`${req.method} ${url.pathname}`);
     if (url.pathname === '/token') return json(res, 200, { access_token: 'test-access-token', expires_in: 3600 });
 
+    if (req.method === 'GET' && url.pathname.startsWith('/drive/v3/files/') && url.searchParams.get('alt') === 'media') {
+      if (url.searchParams.get('key') !== apiKey && !authed(req)) return json(res, 401, { error: { message: 'Invalid Credentials' } });
+      const data = media.get(url.pathname.split('/').pop());
+      if (!data) return json(res, 404, { error: { message: 'File not found' } });
+      const m = String(req.headers.range || '').match(/^bytes=(\d+)-(\d*)$/);
+      if (!m) { res.writeHead(200, { 'Content-Length': data.length }); return res.end(data); }
+      const from = Number(m[1]);
+      const to = m[2] ? Math.min(Number(m[2]), data.length - 1) : data.length - 1;
+      res.writeHead(206, { 'Content-Length': to - from + 1, 'Content-Range': `bytes ${from}-${to}/${data.length}` });
+      return res.end(data.subarray(from, to + 1));
+    }
     if (req.method === 'GET' && url.pathname === '/drive/v3/files') {
       if (url.searchParams.get('key') !== apiKey && !authed(req)) return json(res, 400, { error: { message: 'API key not valid. Please pass a valid API key.' } });
       // A private folder looks empty to API-key requests (that is what real Drive does).
@@ -52,6 +64,7 @@ export function startFakeGoogle({ apiKey, root, children, rootId, publicVisible 
       return json(res, 200, { id: f.id, name: f.name });
     }
     if (req.method === 'PATCH' && url.pathname.startsWith('/upload/drive/v3/files/')) {
+      if (server.denyWrites) { await read(req); return json(res, 403, { error: { message: 'The user does not have sufficient permissions for this file.' } }); }
       const id = url.pathname.split('/').pop();
       bodies.set(id, (await read(req)).toString());
       files.get(id).modifiedTime = tick();
@@ -68,5 +81,5 @@ export function startFakeGoogle({ apiKey, root, children, rootId, publicVisible 
     json(res, 404, { error: { message: `fake: no route ${req.method} ${url.pathname}` } });
   });
   server.sessions = new Map();
-  return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve({ server, files, bodies, calls, base: `http://127.0.0.1:${server.address().port}` })));
+  return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve({ server, files, bodies, media, calls, base: `http://127.0.0.1:${server.address().port}` })));
 }

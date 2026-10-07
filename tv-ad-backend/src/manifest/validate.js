@@ -23,7 +23,7 @@ export function validateManifest(m) {
     need(MEDIA_TYPES[ad.mimeType] === ad.type, `${at}.type does not match mimeType`);
     need(ad.durationSec === null || ad.durationSec > 0, `${at}.durationSec must be positive or null`);
     need(ad.type !== 'image' || ad.durationSec > 0, `${at} is an image without a duration`);
-    need(typeof ad.src === 'string' && ad.src.startsWith('https://'), `${at}.src must be an https URL`);
+    need(typeof ad.src === 'string' && ad.src === `/api/ads/${ad.id}/content`, `${at}.src must be /api/ads/<id>/content`);
   });
   return errors;
 }

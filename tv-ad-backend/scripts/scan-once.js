@@ -1,16 +1,17 @@
-// Step 3 check: reads the folder with only the API key (like the TV will) and writes local previews.
-// Nothing is written to Drive. Run: npm run scan
+// Read-only check: scans the folder (as your Google account if OAuth is set up, otherwise with the API key)
+// and writes local previews. Nothing is written to Drive. Run: npm run scan
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { loadConfig, FOLDER_MIME } from '../src/config.js';
 import { createPublicReader } from '../src/drive/publicReader.js';
+import { createTokenProvider } from '../src/drive/oauth.js';
 import { buildManifest } from '../src/manifest/buildManifest.js';
 import { validateManifest } from '../src/manifest/validate.js';
 import { renderIndexHtml } from '../src/manifest/renderIndexHtml.js';
 
 try {
   const config = loadConfig();
-  const reader = createPublicReader(config);
+  const reader = createPublicReader(config, createTokenProvider(config));
   const rootChildren = await reader.listChildren(config.rootFolderId);
   const folderChildren = new Map();
   for (const f of rootChildren.filter((x) => x.mimeType === FOLDER_MIME)) {

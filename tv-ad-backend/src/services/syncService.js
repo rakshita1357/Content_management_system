@@ -49,22 +49,9 @@ export function createSyncService({ config, reader, writer, store, log = console
     return manifest;
   }
 
-  // The scan may run as the signed-in account (private folder OK), but the TV only has the API key.
-  // If the key sees fewer items in the root than the account does, tell the admin the folder is not public.
-  async function checkTvAccess(manifest) {
-    if (!reader.usesOAuth || !reader.listChildrenPublic) return null;
-    const expected = manifest.summary.adFolders.length + manifest.skipped.filter((s) => !s.adName).length;
-    if (!expected) return null;
-    try {
-      const visible = await reader.listChildrenPublic(config.rootFolderId);
-      if (visible.length) return null;
-    } catch { /* fall through to the warning */ }
-    return 'The TV cannot see this Drive folder. In Drive, share it as "Anyone with the link: Viewer", otherwise the TV will not be able to load ads.';
-  }
-
   function publishingStatus() {
-    if (!config.publishToDrive) return { enabled: false, reason: 'PUBLISH_TO_DRIVE is false: preview only.' };
-    if (!writer) return { enabled: false, reason: 'OAuth is not set up yet, so nothing is written to Drive. See step 5.' };
+    if (!config.publishToDrive) return { enabled: false, reason: null };
+    if (!writer) return { enabled: false, reason: 'OAuth is not set up, so nothing can be written to Drive.' };
     return { enabled: true, reason: null };
   }
 
@@ -82,21 +69,28 @@ export function createSyncService({ config, reader, writer, store, log = console
         state.manifest = manifest;
         state.indexHtml = renderIndexHtml(manifest);
         state.lastScanAt = now().toISOString();
-        state.warning = await checkTvAccess(manifest);
 
         const changed = manifest.revision !== state.publishedRevision;
         let published = false;
+        state.warning = null;
         if (publishingStatus().enabled && (changed || force)) {
-          // Page first, manifest last: once ads.json shows a new revision, index.html is already in place.
-          await writer.upsertTextFile(config.rootFolderId, PUBLISHED_FILES.page, 'text/html', state.indexHtml);
-          await writer.upsertTextFile(config.rootFolderId, PUBLISHED_FILES.manifest, 'application/json', `${JSON.stringify(manifest, null, 2)}\n`);
-          state.publishedRevision = manifest.revision;
-          state.lastPublishAt = now().toISOString();
-          await store.save({ publishedRevision: state.publishedRevision, lastPublishAt: state.lastPublishAt });
-          published = true;
+          // Optional copy of ads.json/index.html in Drive. The TV does not read it, so a failure here
+          // (for example a view-only folder) is reported as a warning and never blocks the scan.
+          try {
+            // Page first, manifest last: once ads.json shows a new revision, index.html is already in place.
+            await writer.upsertTextFile(config.rootFolderId, PUBLISHED_FILES.page, 'text/html', state.indexHtml);
+            await writer.upsertTextFile(config.rootFolderId, PUBLISHED_FILES.manifest, 'application/json', `${JSON.stringify(manifest, null, 2)}\n`);
+            state.publishedRevision = manifest.revision;
+            state.lastPublishAt = now().toISOString();
+            await store.save({ publishedRevision: state.publishedRevision, lastPublishAt: state.lastPublishAt });
+            published = true;
+          } catch (err) {
+            state.warning = `Could not save ads.json/index.html to Drive: ${err.message}${err.hint ? ` (${err.hint})` : ''}. Playback is not affected.`;
+            log.error(`[sync:${reason}] publish to Drive failed: ${err.message}`);
+          }
         }
         state.lastError = null;
-        log.info(`[sync:${reason}] ${manifest.summary.totalAds} ads, revision ${manifest.revision}, ${published ? 'published' : changed ? 'not published' : 'unchanged'}`);
+        log.info(`[sync:${reason}] ${manifest.summary.totalAds} ads, revision ${manifest.revision}, ${published ? 'published to Drive' : changed ? 'new revision' : 'unchanged'}`);
         return { revision: manifest.revision, changed, published, totalAds: manifest.summary.totalAds, skipped: manifest.skipped.length };
       } catch (err) {
         state.lastError = { message: err.message, hint: err.hint || null, at: now().toISOString() };

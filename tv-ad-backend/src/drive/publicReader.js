@@ -2,8 +2,7 @@ import { driveError } from '../lib/errors.js';
 
 // Lists Drive folders. By default it uses the API key only (exactly the access the TV has).
 // When a token provider is passed and OAuth is configured, listChildren() authenticates as the
-// signed-in Google account instead, so a PRIVATE folder is scanned correctly. listChildrenPublic()
-// always uses the API key, to check what the TV can really see.
+// signed-in Google account instead, so a PRIVATE folder is scanned correctly.
 const FIELDS = [
   'nextPageToken',
   'files(id,name,mimeType,size,md5Checksum,createdTime,modifiedTime,'
@@ -35,9 +34,21 @@ export function createPublicReader({ apiKey, urls }, tokens = null, fetchImpl = 
     } while (pageToken);
     return files;
   }
+  // Opens a media file for streaming to the TV. Passes the Range header through so video can seek.
+  async function openMedia(fileId, range, signal) {
+    const headers = {};
+    if (range) headers.Range = range;
+    const params = new URLSearchParams({ alt: 'media', supportsAllDrives: 'true' });
+    if (useOAuth) headers.Authorization = `Bearer ${await tokens.getAccessToken()}`;
+    else params.set('key', apiKey);
+    const res = await fetchImpl(`${urls.driveApi}/files/${encodeURIComponent(fileId)}?${params}`, { headers, signal });
+    if (!res.ok && res.status !== 416) throw await driveError(res, 'read the media file');
+    return res;
+  }
+
   return {
+    openMedia,
     usesOAuth: useOAuth,
     listChildren: (folderId) => list(folderId, useOAuth),
-    listChildrenPublic: (folderId) => list(folderId, false),
   };
 }
