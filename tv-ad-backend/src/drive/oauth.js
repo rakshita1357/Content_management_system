@@ -1,7 +1,9 @@
 import { AppError } from '../lib/errors.js';
+import { createGoogleFetch } from '../lib/googleFetch.js';
 
 // Exchanges the long-lived refresh token for short-lived access tokens, cached until near expiry.
-export function createTokenProvider({ oauth, urls }, fetchImpl = fetch) {
+export function createTokenProvider({ oauth, urls, google }, fetchImpl = fetch) {
+  const gfetch = createGoogleFetch(google, fetchImpl);
   let cached = null;
   return {
     isConfigured() {
@@ -9,7 +11,7 @@ export function createTokenProvider({ oauth, urls }, fetchImpl = fetch) {
     },
     async getAccessToken() {
       if (cached && cached.expiresAt - 60_000 > Date.now()) return cached.token;
-      const res = await fetchImpl(urls.token, {
+      const res = await gfetch(urls.token, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
@@ -18,7 +20,7 @@ export function createTokenProvider({ oauth, urls }, fetchImpl = fetch) {
           refresh_token: oauth.refreshToken,
           grant_type: 'refresh_token',
         }),
-      });
+      }, { repeatable: true }); // asking for a token again is harmless
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         const hint = body.error === 'invalid_grant'

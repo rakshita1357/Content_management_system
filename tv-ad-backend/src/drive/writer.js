@@ -1,13 +1,15 @@
 import { FOLDER_MIME } from '../config.js';
 import { AppError, driveError } from '../lib/errors.js';
+import { createGoogleFetch } from '../lib/googleFetch.js';
 
 const escapeQuery = (s) => s.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 
 // Everything that changes Drive goes through here, authenticated as you via OAuth.
-export function createDriveWriter({ urls }, tokens, fetchImpl = fetch) {
+export function createDriveWriter({ urls, google }, tokens, fetchImpl = fetch) {
+  const gfetch = createGoogleFetch(google, fetchImpl);
   async function authed(url, init = {}) {
     const token = await tokens.getAccessToken();
-    return fetchImpl(url, { ...init, headers: { ...(init.headers || {}), Authorization: `Bearer ${token}` } });
+    return gfetch(url, { ...init, headers: { ...(init.headers || {}), Authorization: `Bearer ${token}` } });
   }
 
   async function findChild(parentId, name, mimeType) {

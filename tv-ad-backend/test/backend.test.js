@@ -19,12 +19,12 @@ import { ROOT_ID, sampleDrive } from './fixtures.js';
 const quiet = { info() {}, error() {} };
 const AUTH = { Authorization: `Basic ${Buffer.from('admin:secret').toString('base64')}` };
 
-async function setup({ apiKey = 'good-key', withOAuth = true, publicVisible = true, publish = true, folderId = ROOT_ID, readOnly = false } = {}) {
+async function setup({ apiKey = 'good-key', withOAuth = true, publicVisible = true, publish = true, folderId = ROOT_ID, readOnly = false, extraEnv = {} } = {}) {
   const drive = sampleDrive();
   const google = await startFakeGoogle({ apiKey: 'good-key', root: drive.root, children: drive.children, rootId: ROOT_ID, publicVisible, readOnly });
   const dataDir = await mkdtemp(path.join(os.tmpdir(), 'tvads-'));
   const config = loadConfig({
-    DRIVE_FOLDER_ID: folderId, DRIVE_API_KEY: apiKey, PUBLISH_TO_DRIVE: publish ? 'true' : 'false', ADMIN_PASSWORD: 'secret', MAX_UPLOAD_MB: '1', DATA_DIR: dataDir,
+    DRIVE_FOLDER_ID: folderId, DRIVE_API_KEY: apiKey, PUBLISH_TO_DRIVE: publish ? 'true' : 'false', ...extraEnv, ADMIN_PASSWORD: 'secret', MAX_UPLOAD_MB: '1', DATA_DIR: dataDir,
     GOOGLE_CLIENT_ID: withOAuth ? 'id' : '', GOOGLE_CLIENT_SECRET: withOAuth ? 'sec' : '', GOOGLE_REFRESH_TOKEN: withOAuth ? 'rt' : '',
     DRIVE_API_BASE: `${google.base}/drive/v3`, DRIVE_UPLOAD_BASE: `${google.base}/upload/drive/v3`, GOOGLE_TOKEN_URL: `${google.base}/token`,
   });
@@ -358,4 +358,138 @@ test('TV routes allow cross-origin reads (packaged TV apps), admin routes do not
   env.google.media.set('img1', Buffer.alloc(10));
   assert.equal((await fetch(`${env.base}/api/ads/img1/content`)).headers.get('access-control-allow-origin'), '*');
   assert.equal((await fetch(`${env.base}/api/status`, { headers: AUTH })).headers.get('access-control-allow-origin'), null);
+});
+
+// ---- Phase 4: sync hardening ----------------------------------------------------------------
+
+import { nextDelayMs } from '../src/services/syncService.js';
+import { diffManifests } from '../src/manifest/buildManifest.js';
+import { createGoogleFetch } from '../src/lib/googleFetch.js';
+
+const FAST = { GOOGLE_RETRY_BASE_MS: '5', GOOGLE_TIMEOUT_MS: '300', GOOGLE_RETRIES: '2' };
+const setupFast = (opts = {}) => setup({ ...opts, extraEnv: FAST });
+
+test('google calls: repeats server errors, then succeeds', async () => {
+  let calls = 0;
+  const gf = createGoogleFetch({ timeoutMs: 500, retries: 3, retryBaseMs: 1 }, async () => (++calls < 3 ? new Response('x', { status: 503 }) : new Response('ok')));
+  const res = await gf('http://x/');
+  assert.equal(await res.text(), 'ok');
+  assert.equal(calls, 3);
+});
+
+test('google calls: a POST is not repeated unless asked, a hung call times out with a clear error', async () => {
+  let calls = 0;
+  const gf = createGoogleFetch({ timeoutMs: 50, retries: 3, retryBaseMs: 1 }, async () => { calls++; return new Response('x', { status: 503 }); });
+  assert.equal((await gf('http://x/', { method: 'POST' })).status, 503);
+  assert.equal(calls, 1);
+  const hung = createGoogleFetch({ timeoutMs: 40, retries: 1, retryBaseMs: 1 }, (url, { signal }) => new Promise((_, reject) => signal.addEventListener('abort', () => reject(new Error('aborted')))));
+  await assert.rejects(hung('http://x/'), (err) => err.status === 502 && /did not answer in time/.test(err.message) && /internet connection/.test(err.hint));
+  const down = createGoogleFetch({ timeoutMs: 40, retries: 0, retryBaseMs: 1 }, async () => { throw new TypeError('fetch failed', { cause: { code: 'ENOTFOUND' } }); });
+  await assert.rejects(down('http://x/'), /Cannot reach Google Drive \(ENOTFOUND\)/);
+});
+
+test('sync survives two Drive server errors in a row', async (t) => {
+  const env = await setupFast(); t.after(env.close);
+  env.google.server.fault = { status: 503, count: 2 };
+  const result = await env.sync.sync();
+  assert.equal(result.totalAds, 3);
+  assert.equal(env.sync.getStatus().failures, 0);
+});
+
+test('a hung Drive call fails the sync cleanly and the next sync works (the queue is not stuck)', async (t) => {
+  const env = await setupFast(); t.after(env.close);
+  env.google.server.hangMs = 2000;
+  await assert.rejects(env.sync.sync(), /did not answer in time/);
+  assert.equal(env.sync.getStatus().failures, 1);
+  assert.match(env.sync.getStatus().lastError.hint, /internet connection/);
+  env.google.server.hangMs = 0;
+  assert.equal((await env.sync.sync()).totalAds, 3);
+  assert.equal(env.sync.getStatus().failures, 0);
+});
+
+test('an empty answer from Drive is held back once, then accepted if it repeats', async (t) => {
+  const env = await setup(); t.after(env.close);
+  await env.sync.sync();
+  const kept = env.sync.getManifest().revision;
+  env.google.server.emptyLists = true;
+  const first = await env.sync.sync();
+  assert.equal(first.heldBack, true);
+  assert.equal(first.totalAds, 3);
+  assert.equal(env.sync.getManifest().revision, kept, 'the TV still gets the previous list');
+  assert.match(env.sync.getStatus().warning, /previous list is kept/);
+  const second = await env.sync.sync();
+  assert.equal(second.totalAds, 0, 'a second empty scan is believed');
+  assert.equal(env.sync.getManifest().ads.length, 0);
+});
+
+test('"Sync now" trusts an empty folder immediately', async (t) => {
+  const env = await setup(); t.after(env.close);
+  await env.sync.sync();
+  env.google.server.emptyLists = true;
+  assert.equal((await env.sync.sync({ reason: 'manual', force: true })).totalAds, 0);
+});
+
+test('the last good ad list survives a restart, even when Drive is unreachable', async (t) => {
+  const env = await setup(); t.after(env.close);
+  await env.sync.sync();
+  const revision = env.sync.getManifest().revision;
+  // "restart": a new service on the same data folder whose Drive calls all fail
+  const dead = createPublicReader(loadConfig({ DRIVE_FOLDER_ID: ROOT_ID, DRIVE_API_KEY: 'k', GOOGLE_RETRIES: '0', GOOGLE_RETRY_BASE_MS: '1', DRIVE_API_BASE: 'http://127.0.0.1:9/drive/v3' }));
+  const again = createSyncService({ config: env.config, reader: dead, writer: null, store: createStateStore(env.dataDir), log: quiet });
+  await again.init();
+  assert.equal(again.getManifest().revision, revision);
+  assert.equal(again.getManifest().ads.length, 3);
+  assert.equal(again.getStatus().fromDisk, true);
+  await assert.rejects(again.sync(), /Cannot reach Google Drive/);
+  assert.equal(again.getManifest().ads.length, 3, 'a failed scan never throws the list away');
+});
+
+test('the saved list is dropped when the folder is changed', async (t) => {
+  const env = await setup(); t.after(env.close);
+  await env.sync.sync();
+  assert.ok(await createStateStore(env.dataDir).loadManifest());
+  await env.sync.setSource({ folderId: 'OTHER_FOLDER_1234567', folderName: 'Other', canWrite: true });
+  assert.equal(await createStateStore(env.dataDir).loadManifest(), null);
+  assert.equal(env.sync.getManifest(), null);
+});
+
+test('retry timing after failures: 30 s, 1 min, 2 min ... never longer than the normal interval', () => {
+  assert.equal(nextDelayMs(0, 300), 300_000);
+  assert.equal(nextDelayMs(1, 300), 30_000);
+  assert.equal(nextDelayMs(2, 300), 60_000);
+  assert.equal(nextDelayMs(3, 300), 120_000);
+  assert.equal(nextDelayMs(9, 300), 300_000);
+  assert.equal(nextDelayMs(1, 30), 30_000);
+});
+
+test('changes are described as added / changed / removed and shown in status', async (t) => {
+  const a = { ads: [{ id: '1', md5: 'a', sizeBytes: 1, adName: 'x', fileName: 'f' }, { id: '2', md5: 'b', sizeBytes: 1, adName: 'x', fileName: 'g' }, { id: '3', md5: 'c', sizeBytes: 1, adName: 'y', fileName: 'h' }] };
+  const b = { ads: [{ id: '1', md5: 'a', sizeBytes: 1, adName: 'x', fileName: 'f' }, { id: '2', md5: 'B2', sizeBytes: 1, adName: 'x', fileName: 'g' }, { id: '4', md5: 'd', sizeBytes: 1, adName: 'y', fileName: 'i' }] };
+  assert.deepEqual(diffManifests(a, b), { added: 1, modified: 1, removed: 1 });
+  assert.deepEqual(diffManifests(a, a), { added: 0, modified: 0, removed: 0 });
+
+  const env = await setup(); t.after(env.close);
+  await env.sync.sync();
+  assert.equal(env.sync.getStatus().lastChange, null, 'the first scan is not a "change"');
+  env.google.files.get('img1').trashed = true;
+  await env.sync.sync();
+  const change = env.sync.getStatus().lastChange;
+  assert.equal(change.removed, 1);
+  assert.equal(change.added, 0);
+});
+
+test('health reports sync state without exposing details; three failures in a row flag it', async (t) => {
+  const env = await setupFast(); t.after(env.close);
+  await env.sync.sync();
+  let health = await (await fetch(`${env.base}/api/health`)).json();
+  assert.deepEqual(Object.keys(health).sort(), ['ads', 'lastSuccessAt', 'needsSetup', 'ok', 'revision', 'syncOk']);
+  assert.equal(health.ads, 3);
+  assert.equal(health.syncOk, true);
+  env.google.server.fault = { status: 500, count: 1000 };
+  for (let i = 0; i < 3; i++) await env.sync.sync().catch(() => {});
+  health = await (await fetch(`${env.base}/api/health`)).json();
+  assert.equal(health.ok, true, 'the backend itself is up');
+  assert.equal(health.syncOk, false);
+  assert.equal(env.sync.getManifest().ads.length, 3, 'ads keep being served while Drive is failing');
+  assert.equal((await fetch(`${env.base}/tv/ads.json`)).status, 200);
 });

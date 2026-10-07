@@ -21,6 +21,11 @@ export function startFakeGoogle({ apiKey, root, children, rootId, publicVisible 
     const url = new URL(req.url, 'http://x');
     calls.push(`${req.method} ${url.pathname}`);
     if (url.pathname === '/token') return json(res, 200, { access_token: 'test-access-token', expires_in: 3600 });
+    // Fault injection for tests: slow answers, a few server errors, or empty listings.
+    if (url.pathname.startsWith('/drive/v3/files') && url.searchParams.get('alt') !== 'media') {
+      if (server.hangMs) await new Promise((r) => setTimeout(r, server.hangMs));
+      if (server.fault?.count > 0) { server.fault.count--; return json(res, server.fault.status, { error: { message: 'injected failure' } }); }
+    }
 
     if (req.method === 'GET' && url.pathname.startsWith('/drive/v3/files/') && url.searchParams.get('alt') === 'media') {
       if (url.searchParams.get('key') !== apiKey && !authed(req)) return json(res, 401, { error: { message: 'Invalid Credentials' } });
@@ -45,6 +50,7 @@ export function startFakeGoogle({ apiKey, root, children, rootId, publicVisible 
       if (url.searchParams.get('key') !== apiKey && !authed(req)) return json(res, 400, { error: { message: 'API key not valid. Please pass a valid API key.' } });
       // A private folder looks empty to API-key requests (that is what real Drive does).
       if (!publicVisible && !authed(req)) return json(res, 200, { files: [] });
+      if (server.emptyLists) return json(res, 200, { files: [] });
       const q = url.searchParams.get('q');
       const parent = q.match(/'([^']+)' in parents/)[1];
       const name = q.match(/name = '((?:[^'\\]|\\.)*)'/)?.[1]?.replace(/\\'/g, "'");

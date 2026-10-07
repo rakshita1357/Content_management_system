@@ -48,6 +48,12 @@ export function loadConfig(env = process.env) {
     publishToDrive: env.PUBLISH_TO_DRIVE === 'true',
     webCoreDir: env.WEB_CORE_DIR || fileURLToPath(new URL('../../web-core/', import.meta.url)),
     dataDir: env.DATA_DIR || fileURLToPath(new URL('../data/', import.meta.url)),
+    // How patient the backend is with Google. Advanced: rarely needs changing.
+    google: {
+      timeoutMs: num('GOOGLE_TIMEOUT_MS', 30000, 50),
+      retries: num('GOOGLE_RETRIES', 3, 0),
+      retryBaseMs: num('GOOGLE_RETRY_BASE_MS', 1000, 1),
+    },
     // Overridable so tests can point at a fake Google server.
     urls: {
       driveApi: env.DRIVE_API_BASE || 'https://www.googleapis.com/drive/v3',

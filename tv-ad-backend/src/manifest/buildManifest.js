@@ -36,6 +36,24 @@ export function publicManifest(manifest) {
   return rest;
 }
 
+// What changed between two manifests, matched by Drive file id. A change is a new checksum/modified time,
+// a different size, or the file moving to another ad folder or being renamed.
+export function diffManifests(previous, next) {
+  const before = new Map((previous?.ads || []).map((a) => [a.id, a]));
+  const after = new Map((next?.ads || []).map((a) => [a.id, a]));
+  const same = (a, b) => (a.md5 || a.modifiedTime) === (b.md5 || b.modifiedTime)
+    && a.sizeBytes === b.sizeBytes && a.adName === b.adName && a.fileName === b.fileName;
+  let added = 0;
+  let modified = 0;
+  let removed = 0;
+  for (const [id, ad] of after) {
+    if (!before.has(id)) added++;
+    else if (!same(before.get(id), ad)) modified++;
+  }
+  for (const id of before.keys()) if (!after.has(id)) removed++;
+  return { added, modified, removed };
+}
+
 export function computeRevision(manifest) {
   const { generatedAt, revision, ...rest } = manifest;
   return createHash('sha256').update(JSON.stringify(rest)).digest('hex').slice(0, 12);
