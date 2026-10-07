@@ -49,6 +49,7 @@ export function createSyncService({ config, reader, writer, store, log = console
     }
     const manifest = buildManifest({
       rootFolderId: folderId,
+      folderName: folderId === state.source?.folderId ? state.source.folderName : null,
       rootChildren,
       folderChildren,
       imageDurationSec: config.imageDurationSec,
@@ -108,6 +109,14 @@ export function createSyncService({ config, reader, writer, store, log = console
       }
       state.running = true;
       try {
+        // A folder taken from .env has no name yet: look it up once (failure is not a problem).
+        if (!state.source.folderName) {
+          try {
+            const folder = await reader.getFolder(state.source.folderId);
+            state.source = { ...state.source, folderName: folder.name };
+            await persist();
+          } catch { /* the name is only for display */ }
+        }
         const manifest = await scan();
         state.lastScanAt = now().toISOString();
 

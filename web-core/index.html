@@ -14,10 +14,21 @@
     <div>
       <h1>Ad run order</h1>
       <p class="sub" id="sub"></p>
-      <p class="sub" id="cache-sum"></p>
     </div>
     <dl class="stats" id="stats"></dl>
   </header>
+  <dl class="facts" id="facts">
+    <div class="fact"><dt>Drive folder</dt><dd id="f-folder"></dd></div>
+    <div class="fact"><dt>Saved for offline play</dt><dd id="f-saved"></dd></div>
+    <div class="fact"><dt>Connection</dt><dd id="f-conn"></dd></div>
+    <div class="fact"><dt>Last sync</dt><dd id="f-last"></dd></div>
+  </dl>
+  <p class="note" id="cache-note"></p>
+  <div class="actions">
+    <button id="start" class="btn" type="button" hidden>Start playing</button>
+    <button id="sync-now" class="btn secondary" type="button">Sync now</button>
+    <a id="change-folder" class="btn secondary" href="#">Change Drive folder</a>
+  </div>
   <table id="table">
     <thead>
       <tr>
@@ -27,7 +38,6 @@
     </thead>
     <tbody id="rows"></tbody>
   </table>
-  <button id="start" type="button" hidden>Start playing</button>
   <p class="empty" id="empty" hidden>No ads yet. Put an MP4, JPG or PNG inside a subfolder of the Drive folder and it appears here after the next sync.</p>
   <section class="skipped" id="skipped" hidden>
     <h2>Found in Drive but not playing</h2>

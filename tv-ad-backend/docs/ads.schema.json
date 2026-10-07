@@ -11,7 +11,8 @@
     "source": {
       "type": "object",
       "required": ["folderId"],
-      "properties": { "folderId": { "type": "string" } }
+      "description": "Admin copy. The public copy (/tv/ads.json) replaces this with { id, name }: id is a hash of folderId, so TVs can tell folders apart without learning the Drive folder id.",
+      "properties": { "folderId": { "type": "string" }, "folderName": { "type": ["string", "null"] } }
     },
     "settings": {
       "type": "object",

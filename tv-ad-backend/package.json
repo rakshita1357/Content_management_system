@@ -9,6 +9,7 @@
     "start": "node --env-file=.env src/server.js",
     "scan": "node --env-file=.env scripts/scan-once.js",
     "auth": "node --env-file=.env scripts/authorize.js",
-    "test": "node --test \"test/*.test.js\""
+    "test": "node --test \"test/*.test.js\"",
+    "test:browser": "node --test --test-concurrency=1 \"test/browser/*.e2e.mjs\""
   }
 }

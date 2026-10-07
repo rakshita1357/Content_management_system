@@ -31,9 +31,15 @@ function toAd(file, folder, imageDurationSec) {
 
 // The revision changes only when something the TV cares about changes (not on every scan).
 // What the TV and other public readers get: the manifest without Drive-specific details.
+// The source gets an opaque id (a hash of the folder id) so a TV can tell "same folder" from "different folder"
+// without ever learning the real Drive folder id.
+export function sourceKey(folderId) {
+  return createHash('sha256').update(String(folderId)).digest('hex').slice(0, 16);
+}
+
 export function publicManifest(manifest) {
   const { source, ...rest } = manifest;
-  return rest;
+  return { ...rest, source: { id: sourceKey(source.folderId), name: source.folderName || null } };
 }
 
 // What changed between two manifests, matched by Drive file id. A change is a new checksum/modified time,
@@ -64,7 +70,7 @@ export function computeRevision(manifest) {
  * rootChildren: files directly in the main folder.
  * folderChildren: Map of subfolder ID -> files in that subfolder.
  */
-export function buildManifest({ rootFolderId, rootChildren, folderChildren, imageDurationSec, syncIntervalSec, now = new Date() }) {
+export function buildManifest({ rootFolderId, folderName = null, rootChildren, folderChildren, imageDurationSec, syncIntervalSec, now = new Date() }) {
   const ads = [];
   const skipped = [];
   const reserved = new Set(Object.values(PUBLISHED_FILES));
@@ -98,7 +104,7 @@ export function buildManifest({ rootFolderId, rootChildren, folderChildren, imag
     schemaVersion: SCHEMA_VERSION,
     revision: '',
     generatedAt: now.toISOString(),
-    source: { folderId: rootFolderId },
+    source: { folderId: rootFolderId, folderName },
     settings: { imageDurationSec, syncIntervalSec, order: 'createdTime-asc' },
     summary: {
       totalAds: ads.length,

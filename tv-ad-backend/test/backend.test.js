@@ -289,19 +289,85 @@ test('bad links and unreachable folders are rejected with a reason and change no
   assert.equal((await fetch(`${env.base}/api/source`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status, 401);
 });
 
-test('switching folders replaces the ads and the old run order is gone', async (t) => {
+const addFolderWithAd = (env, folderId, name, adId = `${folderId}_AD_FILE_1234`) => {
+  env.google.files.set(folderId, { id: folderId, name, mimeType: 'application/vnd.google-apps.folder', parents: [ROOT_ID], trashed: false });
+  const adFolder = `${folderId}_SUB_1234567`;
+  env.google.files.set(adFolder, { id: adFolder, name: 'promo', mimeType: 'application/vnd.google-apps.folder', parents: [folderId], trashed: false, createdTime: '2026-09-09T00:00:00Z' });
+  env.google.files.set(adId, { id: adId, name: 'only.png', mimeType: 'image/png', size: '10', md5Checksum: 'm', createdTime: '2026-09-09T00:00:00Z', modifiedTime: '2026-09-09T00:00:00Z', parents: [adFolder], trashed: false });
+};
+
+test('changing to a different folder: check says it needs confirmation, apply refuses without it, then replaces', async (t) => {
   const env = await setup(); t.after(env.close);
   await env.sync.sync();
-  env.google.files.set('SECOND_FOLDER_1234567', { id: 'SECOND_FOLDER_1234567', name: 'Second', mimeType: 'application/vnd.google-apps.folder', parents: [ROOT_ID], trashed: false });
-  env.google.files.set('SECOND_AD_FILE_123456', { id: 'SECOND_AD_FILE_123456', name: 'only.png', mimeType: 'image/png', size: '10', createdTime: '2026-09-09T00:00:00Z', modifiedTime: '2026-09-09T00:00:00Z', parents: ['SECOND_FOLDER_1234567'], trashed: false });
-  // SECOND_FOLDER is itself a folder whose child "only.png" sits directly inside it, so it has no ad subfolders.
-  const res = await post(env, '/api/source', { link: FOLDER_LINK('SECOND_FOLDER_1234567') });
-  const body = await res.json();
-  assert.equal(res.status, 200, JSON.stringify(body));
-  assert.equal(body.summary.totalAds, 0);
-  assert.ok(body.warnings.some((w) => /no subfolders/.test(w)));
-  assert.equal(env.sync.getManifest().ads.length, 0);
+  const before = env.sync.getManifest().revision;
+  addFolderWithAd(env, 'SECOND_FOLDER_1234567', 'Second');
+
+  const check = await (await post(env, '/api/source/check', { link: FOLDER_LINK('SECOND_FOLDER_1234567') })).json();
+  assert.equal(check.same, false);
+  assert.equal(check.requiresConfirm, true);
+  assert.equal(check.current.folderName, 'Test root');
+  assert.equal(check.summary.totalAds, 1);
+  assert.equal(env.sync.getSource().folderId, ROOT_ID, 'checking changes nothing');
+
+  const refused = await post(env, '/api/source', { link: FOLDER_LINK('SECOND_FOLDER_1234567') });
+  assert.equal(refused.status, 409);
+  assert.equal((await refused.json()).code, 'CONFIRM_REQUIRED');
+  assert.equal(env.sync.getManifest().revision, before, 'refusing changes nothing');
+
+  const done = await post(env, '/api/source', { link: FOLDER_LINK('SECOND_FOLDER_1234567'), replace: true });
+  assert.equal(done.status, 200);
+  assert.equal((await done.json()).sync.totalAds, 1);
   assert.equal(env.sync.getStatus().source.folderName, 'Second');
+  assert.equal(env.sync.getManifest().ads.length, 1);
+});
+
+test('replacing a working folder with one that has no ads is refused and keeps the old ads', async (t) => {
+  const env = await setup(); t.after(env.close);
+  await env.sync.sync();
+  env.google.files.set('EMPTY_FOLDER_12345678', { id: 'EMPTY_FOLDER_12345678', name: 'Empty', mimeType: 'application/vnd.google-apps.folder', parents: [ROOT_ID], trashed: false });
+  const res = await post(env, '/api/source', { link: FOLDER_LINK('EMPTY_FOLDER_12345678'), replace: true });
+  assert.equal(res.status, 400);
+  assert.equal((await res.json()).code, 'NO_ADS');
+  assert.equal(env.sync.getSource().folderId, ROOT_ID);
+  assert.equal(env.sync.getManifest().ads.length, 3);
+});
+
+test('entering the same folder again changes nothing and needs no confirmation', async (t) => {
+  const env = await setup(); t.after(env.close);
+  await env.sync.sync();
+  const before = env.sync.getManifest().revision;
+  const check = await (await post(env, '/api/source/check', { link: FOLDER_LINK(ROOT_ID) })).json();
+  assert.equal(check.same, true);
+  assert.equal(check.requiresConfirm, false);
+  const res = await (await post(env, '/api/source', { link: ROOT_ID })).json();
+  assert.equal(res.unchanged, true);
+  assert.equal(res.sync.changed, false);
+  assert.equal(env.sync.getManifest().revision, before);
+});
+
+test('the public manifest carries an opaque folder id and the folder name, never the Drive id', async (t) => {
+  const env = await setup(); t.after(env.close);
+  assert.equal(env.sync.getStatus().source.folderName, null, 'a folder from .env starts without a name');
+  await env.sync.sync();
+  assert.equal(env.sync.getStatus().source.folderName, 'Test root', 'the name is looked up on the first sync');
+  const pub = await (await fetch(`${env.base}/tv/ads.json`)).json();
+  assert.match(pub.source.id, /^[0-9a-f]{16}$/);
+  assert.equal(pub.source.name, 'Test root');
+  assert.doesNotMatch(JSON.stringify(pub), new RegExp(ROOT_ID));
+  addFolderWithAd(env, 'THIRD_FOLDER_12345678', 'Third');
+  await post(env, '/api/source', { link: FOLDER_LINK('THIRD_FOLDER_12345678'), replace: true });
+  const other = await (await fetch(`${env.base}/tv/ads.json`)).json();
+  assert.notEqual(other.source.id, pub.source.id);
+});
+
+test('the TV can press Sync now without a login, at most once every 10 seconds', async (t) => {
+  const env = await setup(); t.after(env.close);
+  const first = await (await fetch(`${env.base}/tv/sync`, { method: 'POST' })).json();
+  assert.equal(first.throttled, false);
+  assert.equal(first.ads, 3);
+  const again = await (await fetch(`${env.base}/tv/sync`, { method: 'POST' })).json();
+  assert.equal(again.throttled, true);
+  assert.equal((await fetch(`${env.base}/api/sync`, { method: 'POST' })).status, 401, 'the admin sync still needs a login');
 });
 
 test('view-only folder: ads are scanned, uploads and Drive publishing are refused politely', async (t) => {

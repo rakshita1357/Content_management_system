@@ -6,8 +6,10 @@
   // Offline media cache (cache.js). If that file is missing, a do-nothing stand-in makes the player stream from the backend.
   var cache = window.AdCache || {
     available: false,
-    open: function (cb) { cb(false); }, sync: function () {}, saveManifest: function () {}, loadManifest: function (cb) { cb(null); },
-    blobUrl: function (ad, cb) { cb(null); }, label: function () { return ''; }, summary: function () { return { ready: 0, total: 0, bytes: 0 }; }
+    open: function (cb) { cb(false); }, sync: function () {}, loadCommitted: function (cb) { cb(null); }, touchSync: function () {},
+    blobUrl: function (ad, cb) { cb(null); }, label: function () { return ''; }, hasReady: function () { return true; },
+    summary: function () { return { ready: 0, total: 0, bytes: 0, nospace: 0 }; }, pending: function () { return null; },
+    info: function (cb) { cb({ available: false, quota: 0 }); }
   };
 
   function $(id) { return document.getElementById(id); }
@@ -34,20 +36,45 @@
     return Math.max(1, Math.round(b / 1024)) + ' KB';
   }
 
-  function init(fromCache) {
+  function init(fromCache, live) {
     var IMAGE_SEC = 60;
     var tbody = $('rows');
 
     var cacheCells = {};
+    var health = null, extra = { quota: 0, lastSyncAt: null }, extraAt = 0;
+    function refreshFacts() {
+      var sum = cache.summary(data), parts = [], up = cache.pending();
+      $('f-folder').textContent = (data.source && data.source.name) || 'Drive folder';
+      $('f-saved').textContent = cache.available
+        ? sum.ready + ' of ' + sum.total + ' ads, ' + fmtSize(sum.bytes) + (extra.quota ? ' (about ' + fmtSize(extra.quota) + ' available)' : '')
+        : 'Not available in this browser';
+      $('f-conn').textContent = online ? 'Online' : 'Offline';
+      var last = (health && health.lastSuccessAt) || extra.lastSyncAt;
+      $('f-last').textContent = last ? fmtDate(last, true) : 'Not yet';
+      if (up && up.remaining) parts.push('Updating to a new version: ' + (up.total - up.remaining) + ' of ' + up.total + ' files saved. The current ads keep playing until it is ready.');
+      if (sum.nospace) parts.push(sum.nospace + (sum.nospace === 1 ? ' ad does' : ' ads do') + ' not fit in the available storage and will play from the network while online.');
+      if (health && health.syncOk === false) parts.push('The server could not reach Google Drive recently. Saved ads keep playing.');
+      $('cache-note').textContent = parts.join(' ');
+    }
     function refreshCache() {
-      var i, sum = cache.summary(data);
+      var i;
       for (i = 0; i < data.ads.length; i++) {
         var c = cacheCells[data.ads[i].id];
         if (c) c.textContent = cache.label(data.ads[i]);
       }
-      $('cache-sum').textContent = cache.available
-        ? 'Saved for offline play: ' + sum.ready + ' of ' + sum.total + ' ads (' + fmtSize(sum.bytes) + ')'
-        : 'Offline saving is not available in this browser';
+      refreshFacts();
+      var t = new Date().getTime();
+      if (t - extraAt > 5000) {   // the storage estimate is not free: look at most every 5 seconds
+        extraAt = t;
+        cache.info(function (i2) { extra = { quota: i2.quota, lastSyncAt: i2.lastSyncAt }; refreshFacts(); });
+      }
+    }
+    function fetchHealth() {
+      var x = new XMLHttpRequest();
+      x.open('GET', API + '/api/health', true);
+      x.timeout = 10000;
+      x.onload = function () { try { health = JSON.parse(x.responseText); } catch (e) {} refreshFacts(); };
+      try { x.send(); } catch (e) {}
     }
     function renderBoard() {
       var s = data.summary, i, j, k;
@@ -95,8 +122,8 @@
     // ---- connectivity icon: green online, red offline
     var online = navigator.onLine !== false;
     function showWifi() { $('wifi').className = 'wifi ' + (online ? 'on' : 'off'); $('wifi').title = online ? 'Online' : 'Offline'; }
-    function setOnline(v) { online = v; showWifi(); }
-    window.addEventListener('online', function () { setOnline(true); checkUpdate(); cache.sync(data); });
+    function setOnline(v) { online = v; showWifi(); refreshFacts(); }
+    window.addEventListener('online', function () { setOnline(true); checkUpdate(); });
     window.addEventListener('offline', function () { setOnline(false); });
     showWifi();
 
@@ -122,12 +149,12 @@
         else if (d.fullscreenElement || d.webkitFullscreenElement) { (d.exitFullscreen || d.webkitExitFullscreen).call(d); }
       } catch (e) {}
     }
+    // Switches to the newest ready ad list. Called between two ads (or at once when nothing is playing).
     function applyPending() {
       if (!pending) return;
       data = pending; pending = null; window.ADS_MANIFEST = data;
       renderBoard();
-      cache.saveManifest(data);
-      cache.sync(data);
+      refreshFacts();
       idx = -1;
     }
     function skip() {
@@ -231,9 +258,14 @@
         setOnline(true);
         var m = null;
         try { m = JSON.parse(x.responseText); } catch (e) { return; }
-        if (!m || !m.ads || m.revision === data.revision) return;
-        pending = m;
-        if (!active) { applyPending(); }   // while playing, switch at the next ad boundary
+        if (!m || !m.ads) return;
+        cache.touchSync(new Date().toISOString());
+        fetchHealth();
+        if (!cache.available) {   // no saving possible: use the new list directly, as before
+          if (m.revision !== data.revision) { pending = m; if (!active) applyPending(); }
+          return;
+        }
+        cache.sync(m);   // download what is new first; the cache hands the list over when it is safe to switch
       };
       x.onerror = x.ontimeout = function () { setOnline(false); };
       try { x.send(); } catch (e) {}
@@ -266,20 +298,42 @@
     window.addEventListener('popstate', function () { if (active) { inHistory = false; stopPlayer(); } });
     $('player-root').onclick = function (e) { if (e.target !== $('exit')) userGesture(); };
 
+    $('change-folder').href = API + '/';
+    $('sync-now').onclick = function () {
+      var b = $('sync-now'), x = new XMLHttpRequest();
+      b.disabled = true; b.firstChild.nodeValue = 'Syncing';
+      function done() { b.disabled = false; b.firstChild.nodeValue = 'Sync now'; checkUpdate(); }
+      x.open('POST', API + '/tv/sync', true);
+      x.timeout = 120000;
+      x.onload = x.onerror = x.ontimeout = done;
+      try { x.send(); } catch (e) { done(); }
+    };
+
     renderBoard();
     cache.onChange = refreshCache;
+    // The cache says when a complete, safe-to-play ad list is ready (or when an empty cache gets its first list).
+    cache.onPlaylist = function (m) {
+      if (m.revision === data.revision && (m.source && m.source.id) === (data.source && data.source.id)) return;
+      pending = m;
+      if (!active) applyPending();
+    };
     if (fromCache) { online = false; showWifi(); }
-    else cache.saveManifest(data);
-    cache.sync(data);
+    cache.sync(live || data);
     refreshCache();
+    fetchHealth();
     window.ADS_PLAYER = { start: startPlayer, stop: stopPlayer };
     if (data.ads.length) {
+      // The countdown ends in playback. With an empty cache it also waits (up to 30 seconds longer) until the first
+      // ad is saved, so the TV does not start by streaming everything.
       autoLeft = 10;
+      var extraWait = 0;
       var label = $('start').firstChild;
       label.nodeValue = 'Start playing (' + autoLeft + ')';
       autoTimer = setInterval(function () {
         autoLeft--;
-        if (autoLeft <= 0) { startPlayer(); } else { label.nodeValue = 'Start playing (' + autoLeft + ')'; }
+        if (autoLeft > 0) { label.nodeValue = 'Start playing (' + autoLeft + ')'; return; }
+        if (cache.available && !cache.hasReady(data) && extraWait < 30) { extraWait++; label.nodeValue = 'Saving the first ad'; return; }
+        startPlayer();
       }, 1000);
       $('start').focus();
     }
@@ -303,35 +357,30 @@
     $('board').hidden = false;
   }
 
-  // Load the ad list, then show the table and start the countdown. If the backend cannot be reached but this
-  // device already saved an ad list and its files, start from those (offline start); otherwise keep retrying.
+  // Start-up. The ads that were saved on this device ("the committed list") are what plays. The list from the backend is
+  // only staged: the cache downloads what is new and hands it over when everything is safely stored.
+  //  - backend answers, nothing saved yet: play the backend's list and save it as we go
+  //  - backend answers, something saved:    keep playing the saved list, stage the new one in the background
+  //  - backend does not answer, saved list: play from the saved files (offline start)
   function boot() {
     cache.open(function () {
-      loadManifest(function (status, m) {
-        if (status === 200 && m && m.ads) {
-          data = m;
-          window.ADS_MANIFEST = data;
-          showBoard();
-          init(false);
-          return;
-        }
-        function wait() {
+      cache.loadCommitted(function (saved) {
+        loadManifest(function (status, m) {
+          var live = status === 200 && m && m.ads ? m : null;
+          var keep = saved && saved.manifest && saved.manifest.ads && saved.manifest.ads.length ? saved.manifest : null;
+          if (live || keep) {
+            data = (cache.available && keep) ? keep : live;
+            if (!data) data = keep;
+            window.ADS_MANIFEST = data;
+            showBoard();
+            init(!live, live);
+            return;
+          }
           $('wifi').className = 'wifi ' + (status === 0 ? 'off' : 'on');
           $('loading-text').textContent = status === 0
             ? 'Cannot reach the ad server. Trying again shortly.'
             : ((m && m.error) || 'Loading the ads.');
           setTimeout(boot, 10000);
-        }
-        if (status !== 0) { wait(); return; }
-        cache.loadManifest(function (saved) {
-          if (saved && saved.ads && saved.ads.length) {
-            data = saved;
-            window.ADS_MANIFEST = data;
-            showBoard();
-            init(true);
-          } else {
-            wait();
-          }
         });
       });
     });

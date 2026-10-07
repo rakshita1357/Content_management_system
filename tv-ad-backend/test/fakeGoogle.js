@@ -2,7 +2,7 @@
 import http from 'node:http';
 import { FOLDER } from './fixtures.js';
 
-export function startFakeGoogle({ apiKey, root, children, rootId, publicVisible = true, readOnly = false }) {
+export function startFakeGoogle({ apiKey, root, children, rootId, publicVisible = true, readOnly = false, rootName = 'Test root' }) {
   const files = new Map();
   const add = (f, parent) => files.set(f.id, { ...f, parents: [parent], trashed: false });
   root.forEach((f) => add(f, rootId));
@@ -41,7 +41,7 @@ export function startFakeGoogle({ apiKey, root, children, rootId, publicVisible 
     if (req.method === 'GET' && url.pathname.startsWith('/drive/v3/files/')) {
       if (url.searchParams.get('key') !== apiKey && !authed(req)) return json(res, 401, { error: { message: 'Invalid Credentials' } });
       const id = url.pathname.split('/').pop();
-      if (id === rootId) return json(res, 200, { id, name: 'Test root', mimeType: FOLDER, trashed: false, capabilities: { canAddChildren: !readOnly } });
+      if (id === rootId) return json(res, 200, { id, name: rootName, mimeType: FOLDER, trashed: false, capabilities: { canAddChildren: !readOnly } });
       const f = files.get(id);
       if (!f) return json(res, 404, { error: { message: 'File not found' } });
       return json(res, 200, { id, name: f.name, mimeType: f.mimeType, trashed: f.trashed, capabilities: { canAddChildren: !readOnly } });
