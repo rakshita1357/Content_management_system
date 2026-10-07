@@ -17,7 +17,7 @@ export async function driveError(res, action) {
   const text = `${detail}`.toLowerCase();
   let hint = null;
   if (res.status === 404) {
-    hint = 'Check DRIVE_FOLDER_ID, and share the folder as "Anyone with the link: Viewer".';
+    hint = 'Check DRIVE_FOLDER_ID, and make sure the Google account you signed in with (npm run auth) can open that folder. Without OAuth, the folder must be shared as "Anyone with the link: Viewer".';
   } else if (text.includes('api key not valid') || text.includes('api_key_invalid')) {
     hint = 'DRIVE_API_KEY is wrong. Copy it again from Google Cloud > APIs & Services > Credentials.';
   } else if (text.includes('has not been used') || text.includes('is disabled')) {

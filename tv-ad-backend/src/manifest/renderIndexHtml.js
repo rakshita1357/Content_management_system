@@ -295,6 +295,8 @@ const SCRIPT = `
 })();
 `;
 
+import { publicManifest } from './buildManifest.js';
+
 export function renderIndexHtml(manifest) {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -336,7 +338,7 @@ export function renderIndexHtml(manifest) {
   <button id="exit" type="button" aria-label="Exit player">&times;</button>
 </div>
 <div class="wifi on" id="wifi"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 18.5a1.8 1.8 0 1 0 0 3.6 1.8 1.8 0 0 0 0-3.6zM12 12c-2.3 0-4.4.9-6 2.4l1.6 1.7A6.7 6.7 0 0 1 12 14.3c1.8 0 3.4.7 4.4 1.8l1.6-1.7A9.1 9.1 0 0 0 12 12zm0-6.5c-3.8 0-7.2 1.5-9.7 3.9l1.6 1.7A11.4 11.4 0 0 1 12 7.8c3.1 0 5.9 1.2 8.1 3.3l1.6-1.7A13.7 13.7 0 0 0 12 5.5z"/></svg></div>
-<script type="application/json" id="ads-data">${embedJson(manifest)}</script>
+<script type="application/json" id="ads-data">${embedJson(publicManifest(manifest))}</script>
 <script>${SCRIPT}</script>
 </body>
 </html>

@@ -64,6 +64,7 @@ export function startFakeGoogle({ apiKey, root, children, rootId, publicVisible 
       return json(res, 200, { id: f.id, name: f.name });
     }
     if (req.method === 'PATCH' && url.pathname.startsWith('/upload/drive/v3/files/')) {
+      if (server.denyWrites) { await read(req); return json(res, 403, { error: { message: 'The user does not have sufficient permissions for this file.' } }); }
       const id = url.pathname.split('/').pop();
       bodies.set(id, (await read(req)).toString());
       files.get(id).modifiedTime = tick();

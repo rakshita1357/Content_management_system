@@ -17,12 +17,12 @@ import { ROOT_ID, sampleDrive } from './fixtures.js';
 const quiet = { info() {}, error() {} };
 const AUTH = { Authorization: `Basic ${Buffer.from('admin:secret').toString('base64')}` };
 
-async function setup({ apiKey = 'good-key', withOAuth = true, publicVisible = true } = {}) {
+async function setup({ apiKey = 'good-key', withOAuth = true, publicVisible = true, publish = true } = {}) {
   const drive = sampleDrive();
   const google = await startFakeGoogle({ apiKey: 'good-key', root: drive.root, children: drive.children, rootId: ROOT_ID, publicVisible });
   const dataDir = await mkdtemp(path.join(os.tmpdir(), 'tvads-'));
   const config = loadConfig({
-    DRIVE_FOLDER_ID: ROOT_ID, DRIVE_API_KEY: apiKey, ADMIN_PASSWORD: 'secret', MAX_UPLOAD_MB: '1', DATA_DIR: dataDir,
+    DRIVE_FOLDER_ID: ROOT_ID, DRIVE_API_KEY: apiKey, PUBLISH_TO_DRIVE: publish ? 'true' : 'false', ADMIN_PASSWORD: 'secret', MAX_UPLOAD_MB: '1', DATA_DIR: dataDir,
     GOOGLE_CLIENT_ID: withOAuth ? 'id' : '', GOOGLE_CLIENT_SECRET: withOAuth ? 'sec' : '', GOOGLE_REFRESH_TOKEN: withOAuth ? 'rt' : '',
     DRIVE_API_BASE: `${google.base}/drive/v3`, DRIVE_UPLOAD_BASE: `${google.base}/upload/drive/v3`, GOOGLE_TOKEN_URL: `${google.base}/token`,
   });
@@ -116,19 +116,51 @@ test('published revision survives a restart (no needless re-upload)', async (t) 
   assert.equal((await store.load()).publishedRevision, env.sync.getStatus().publishedRevision);
 });
 
-test('private folder: scan runs as the signed-in account, so ads are found, and status warns the TV cannot see it', async (t) => {
+test('private folder: scan runs as the signed-in account, so ads are found and no sharing warning is shown', async (t) => {
   const env = await setup({ publicVisible: false }); t.after(env.close);
   const result = await env.sync.sync();
   assert.equal(result.totalAds, 3);
   assert.equal(result.published, true);
-  const status = await (await fetch(`${env.base}/api/status`, { headers: AUTH })).json();
-  assert.match(status.warning, /Anyone with the link/);
+  assert.equal(env.sync.getStatus().warning, null);
 });
 
-test('public folder: no warning', async (t) => {
+test('Drive publishing is off by default: ads are scanned but ads.json/index.html are not written', async (t) => {
+  const env = await setup({ publish: false }); t.after(env.close);
+  const result = await env.sync.sync();
+  assert.equal(result.totalAds, 3);
+  assert.equal(result.published, false);
+  assert.equal(env.google.bodies.size, 0, 'nothing was written to Drive');
+  assert.equal(env.sync.getStatus().publishing.reason, null);
+});
+
+test('a failed Drive publish is a warning, not a failed sync', async (t) => {
+  const env = await setup(); t.after(env.close);
+  env.google.server.denyWrites = true; // like a view-only folder
+  const result = await env.sync.sync();
+  assert.equal(result.totalAds, 3);
+  assert.equal(result.published, false);
+  assert.match(env.sync.getStatus().warning, /Playback is not affected/);
+  assert.equal(env.sync.getStatus().lastError, null);
+});
+
+test('config: DRIVE_API_KEY is optional with OAuth, required without it', () => {
+  const base = { DRIVE_FOLDER_ID: ROOT_ID };
+  const oauth = { GOOGLE_CLIENT_ID: 'a', GOOGLE_CLIENT_SECRET: 'b', GOOGLE_REFRESH_TOKEN: 'c' };
+  assert.doesNotThrow(() => loadConfig({ ...base, ...oauth }));
+  assert.doesNotThrow(() => loadConfig({ ...base, DRIVE_API_KEY: 'k' }));
+  assert.throws(() => loadConfig(base), /OAuth/);
+  assert.equal(loadConfig({ ...base, ...oauth }).publishToDrive, false);
+});
+
+test('public manifest hides the Drive folder id; the admin copy keeps it', async (t) => {
   const env = await setup(); t.after(env.close);
   await env.sync.sync();
-  assert.equal(env.sync.getStatus().warning, null);
+  const pub = await (await fetch(`${env.base}/tv/ads.json`)).text();
+  assert.doesNotMatch(pub, new RegExp(ROOT_ID));
+  const page = await (await fetch(`${env.base}/tv`)).text();
+  assert.doesNotMatch(page, new RegExp(ROOT_ID));
+  const admin = await (await fetch(`${env.base}/preview/ads.json`, { headers: AUTH })).json();
+  assert.equal(admin.source.folderId, ROOT_ID);
 });
 
 test('without OAuth, a private folder still scans as 0 ads (key-only reader)', async (t) => {

@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { AppError } from './lib/errors.js';
+import { publicManifest } from './manifest/buildManifest.js';
 import { isAuthorized, sendJson, sendText } from './lib/http.js';
 
 const ADMIN_PAGE = new URL('../public/admin.html', import.meta.url);
@@ -31,7 +32,7 @@ export function createApp({ config, sync, uploads, reader, log = console }) {
   const tvManifest = (req, res) => {
     const manifest = sync.getManifest();
     if (!manifest) throw new AppError(503, 'No scan has finished yet.');
-    sendJson(res, 200, manifest);
+    sendJson(res, 200, publicManifest(manifest));
   };
   const findAd = (id) => {
     const ad = sync.getManifest()?.ads.find((a) => a.id === id);
@@ -71,7 +72,11 @@ export function createApp({ config, sync, uploads, reader, log = console }) {
       sendJson(res, 201, result);
     },
     'GET /preview/index.html': tvPage,
-    'GET /preview/ads.json': tvManifest,
+    'GET /preview/ads.json': (req, res) => {
+      const manifest = sync.getManifest();
+      if (!manifest) throw new AppError(503, 'No scan has finished yet.');
+      sendJson(res, 200, manifest);
+    },
   };
 
   // What the TV needs, without the admin login.

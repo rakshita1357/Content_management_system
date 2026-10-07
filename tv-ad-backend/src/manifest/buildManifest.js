@@ -30,6 +30,12 @@ function toAd(file, folder, imageDurationSec) {
 }
 
 // The revision changes only when something the TV cares about changes (not on every scan).
+// What the TV and other public readers get: the manifest without Drive-specific details.
+export function publicManifest(manifest) {
+  const { source, ...rest } = manifest;
+  return rest;
+}
+
 export function computeRevision(manifest) {
   const { generatedAt, revision, ...rest } = manifest;
   return createHash('sha256').update(JSON.stringify(rest)).digest('hex').slice(0, 12);
