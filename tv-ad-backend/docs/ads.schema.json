@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ads.schema.json",
+  "title": "TV ad display manifest (ads.json)",
+  "type": "object",
+  "required": ["schemaVersion", "revision", "generatedAt", "source", "settings", "summary", "ads", "skipped"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "revision": { "type": "string", "pattern": "^[0-9a-f]{12}$", "description": "Changes only when playable content changes. The TV compares it to know when to reload." },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "source": {
+      "type": "object",
+      "required": ["folderId"],
+      "properties": { "folderId": { "type": "string" } }
+    },
+    "settings": {
+      "type": "object",
+      "required": ["imageDurationSec", "syncIntervalSec", "order"],
+      "properties": {
+        "imageDurationSec": { "type": "number", "exclusiveMinimum": 0 },
+        "syncIntervalSec": { "type": "number", "minimum": 30 },
+        "order": { "const": "createdTime-asc" }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["totalAds", "videos", "images", "totalBytes", "loopSec", "unknownDurations", "adFolders"],
+      "properties": {
+        "totalAds": { "type": "integer", "minimum": 0 },
+        "videos": { "type": "integer", "minimum": 0 },
+        "images": { "type": "integer", "minimum": 0 },
+        "totalBytes": { "type": "integer", "minimum": 0 },
+        "loopSec": { "type": "integer", "minimum": 0, "description": "Sum of known durations. Videos Drive has not processed yet are excluded." },
+        "unknownDurations": { "type": "integer", "minimum": 0 },
+        "adFolders": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "ads": {
+      "type": "array",
+      "description": "Play order. Oldest upload first.",
+      "items": {
+        "type": "object",
+        "required": ["order", "id", "adName", "adFolderId", "fileName", "mimeType", "type", "durationSec", "sizeBytes", "md5", "width", "height", "createdTime", "modifiedTime", "src"],
+        "properties": {
+          "order": { "type": "integer", "minimum": 1 },
+          "id": { "type": "string", "description": "Google Drive file ID" },
+          "adName": { "type": "string", "description": "Name of the subfolder the file is in" },
+          "adFolderId": { "type": "string" },
+          "fileName": { "type": "string" },
+          "mimeType": { "enum": ["video/mp4", "image/jpeg", "image/png"] },
+          "type": { "enum": ["video", "image"] },
+          "durationSec": { "type": ["number", "null"], "description": "Images: seconds on screen. Videos: length, or null if Drive has not processed it yet (the player plays to the end either way)." },
+          "sizeBytes": { "type": "integer", "minimum": 0 },
+          "md5": { "type": ["string", "null"], "description": "Used by the TV cache to detect a replaced file" },
+          "width": { "type": ["integer", "null"] },
+          "height": { "type": ["integer", "null"] },
+          "createdTime": { "type": "string", "format": "date-time" },
+          "modifiedTime": { "type": "string", "format": "date-time" },
+          "src": { "type": "string", "format": "uri", "description": "Download URL without the API key; the player appends &key=..." }
+        }
+      }
+    },
+    "skipped": {
+      "type": "array",
+      "description": "Files found in Drive that will not play, with the reason.",
+      "items": {
+        "type": "object",
+        "required": ["fileName", "adName", "reason"],
+        "properties": {
+          "fileName": { "type": "string" },
+          "adName": { "type": ["string", "null"] },
+          "reason": { "type": "string" }
+        }
+      }
+    }
+  }
+}

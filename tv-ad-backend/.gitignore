@@ -1,0 +1,23 @@
+# Node
+tv-ad-backend/node_modules/
+
+# Environment
+tv-ad-backend/.env
+tv-ad-backend/.env.*
+!tv-ad-backend/.env.example
+
+# Google OAuth
+tv-ad-backend/credentials.json
+tv-ad-backend/token.json
+tv-ad-backend/client_secret*.json
+
+# Cache
+tv-ad-backend/cache/
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+tv-ad-backend/.env

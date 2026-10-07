@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TV ads admin</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@600;700&display=swap">
+<style>
+  :root {
+    --paper: #f4f6f8;
+    --panel: #ffffff;
+    --ink: #14263a;
+    --muted: #5b7186;
+    --line: #d7e0e8;
+    --amber: #c98a0c;
+    --action: #1e4e79;
+    --action-hover: #163c5e;
+    --bad: #b5472b;
+    --bad-bg: #fbeee9;
+    --good: #2e7d5b;
+    --good-bg: #e8f4ee;
+    --display: "Barlow Condensed", "Roboto Condensed", "Arial Narrow", Arial, sans-serif;
+    --body: "Barlow", "Segoe UI", Roboto, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 16px/1.45 var(--body); }
+  header { background: var(--ink); color: #e8eef3; padding: 22px 32px; display: flex; flex-wrap: wrap; gap: 16px 32px; align-items: center; justify-content: space-between; }
+  h1 { margin: 0; font: 700 34px/1 var(--display); }
+  #status-line { margin: 6px 0 0; color: #b8c7d4; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  button, .button { font: 600 15px var(--body); border-radius: 6px; padding: 10px 18px; cursor: pointer; border: 1px solid transparent; text-decoration: none; display: inline-block; }
+  .primary { background: var(--action); color: #fff; }
+  .primary:hover { background: var(--action-hover); }
+  header .primary { background: #f5b841; color: var(--ink); }
+  header .primary:hover { background: #ffc95c; }
+  .ghost { background: transparent; color: #e8eef3; border-color: #4a6680; }
+  .ghost:hover { border-color: #e8eef3; }
+  button:disabled { opacity: 0.55; cursor: progress; }
+  :focus-visible { outline: 3px solid #f5b841; outline-offset: 2px; }
+  main { padding: 28px 32px 48px; display: grid; grid-template-columns: minmax(280px, 360px) 1fr; gap: 28px; align-items: start; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 22px; }
+  h2 { margin: 0 0 14px; font: 700 24px/1.1 var(--display); }
+  label { display: block; font-weight: 600; margin: 14px 0 6px; }
+  .help { color: var(--muted); font-size: 14px; margin: 4px 0 0; }
+  input[type=text], input[type=file] { width: 100%; font: inherit; padding: 9px 11px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+  input[type=file] { padding: 7px; }
+  form .primary { margin-top: 18px; width: 100%; }
+  progress { width: 100%; height: 10px; margin-top: 14px; accent-color: var(--action); }
+  .notice { margin: 0 32px; padding: 12px 16px; border-radius: 6px; border-left: 4px solid; }
+  .notice.bad { background: var(--bad-bg); border-color: var(--bad); color: #6d2614; }
+  .notice.info { background: #eaf1f7; border-color: var(--action); }
+  .notice p { margin: 0; }
+  .notice p + p { margin-top: 4px; }
+  #upload-result { margin-top: 14px; padding: 10px 12px; border-radius: 6px; font-size: 15px; }
+  #upload-result.good { background: var(--good-bg); color: #1d5039; }
+  #upload-result.bad { background: var(--bad-bg); color: #6d2614; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-weight: 500; color: var(--muted); font-size: 14px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  td { padding: 10px; border-bottom: 1px solid #eaeff3; vertical-align: middle; }
+  td.order { font: 700 24px/1 var(--display); color: var(--amber); width: 48px; }
+  td.ad { font-weight: 600; }
+  td.file { color: var(--muted); word-break: break-all; }
+  .num { text-align: right; white-space: nowrap; }
+  .kind { font-size: 13px; font-weight: 600; padding: 2px 8px; border-radius: 4px; }
+  .kind.video { background: #d6f1ee; color: #0f5a52; }
+  .kind.image { background: #e7e1fb; color: #46348f; }
+  .empty { color: var(--muted); }
+  #skipped { margin-top: 18px; padding: 12px 14px; background: var(--bad-bg); border-radius: 6px; font-size: 15px; }
+  #skipped ul { margin: 6px 0 0; padding-left: 18px; }
+  @media (max-width: 860px) {
+    main { grid-template-columns: 1fr; padding: 20px 16px; }
+    header { padding: 18px 16px; }
+    .notice { margin: 0 16px; }
+    .hide-narrow { display: none; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>TV ads</h1>
+    <p id="status-line">Loading status…</p>
+  </div>
+  <div class="actions">
+    <button class="primary" id="sync-btn" type="button">Sync now</button>
+    <a class="button ghost" href="/preview/index.html" target="_blank" rel="noopener">Open TV preview</a>
+    <a class="button ghost" href="/preview/ads.json" target="_blank" rel="noopener">View ads.json</a>
+  </div>
+</header>
+
+<div id="notices"></div>
+
+<main>
+  <section class="panel">
+    <h2>Add an ad</h2>
+    <form id="upload-form">
+      <label for="ad-name">Ad name</label>
+      <input type="text" id="ad-name" list="ad-folders" maxlength="80" required autocomplete="off" placeholder="Diwali offer">
+      <datalist id="ad-folders"></datalist>
+      <p class="help">Pick an existing ad to add a file to it, or type a new name to create one.</p>
+
+      <label for="file">File</label>
+      <input type="file" id="file" accept="video/mp4,image/jpeg,image/png" required>
+      <p class="help" id="file-help">MP4 video, or JPG or PNG image.</p>
+
+      <button class="primary" id="upload-btn" type="submit">Upload</button>
+      <progress id="progress" max="100" value="0" hidden></progress>
+      <div id="upload-result" hidden></div>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>Run order</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>#</th><th>Ad</th><th class="hide-narrow">File</th><th>Type</th><th class="num">On screen</th><th class="num hide-narrow">Size</th></tr></thead>
+        <tbody id="rows"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
+      </table>
+    </div>
+    <div id="skipped" hidden><strong>Found in Drive but not playing</strong><ul id="skipped-list"></ul></div>
+  </section>
+</main>
+
+<script>
+const $ = (sel) => document.querySelector(sel);
+let maxUploadMb = 500;
+let canUpload = true;
+
+const pad = (n) => String(n).padStart(2, '0');
+const time = (iso) => iso ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
+const duration = (s) => { s = Math.round(s); const m = Math.floor(s / 60); return `${m}:${pad(s % 60)}`; };
+const size = (b) => b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`;
+const MIME_BY_EXT = { mp4: 'video/mp4', m4v: 'video/mp4', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png' };
+
+function cell(text, cls) {
+  const td = document.createElement('td');
+  if (cls) td.className = cls;
+  td.textContent = text;
+  return td;
+}
+
+async function api(path, options) {
+  const res = await fetch(path, options);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(body.error || `Request failed (${res.status})`), { hint: body.hint });
+  return body;
+}
+
+function showNotices(status) {
+  const box = $('#notices');
+  box.replaceChildren();
+  const add = (kind, lines) => {
+    const div = document.createElement('div');
+    div.className = `notice ${kind}`;
+    div.style.marginTop = '16px';
+    for (const line of lines.filter(Boolean)) {
+      const p = document.createElement('p');
+      p.textContent = line;
+      div.append(p);
+    }
+    box.append(div);
+  };
+  if (status.lastError) add('bad', [`Last sync failed: ${status.lastError.message}`, status.lastError.hint && `Fix: ${status.lastError.hint}`]);
+  if (!status.publishing.enabled) add('info', [status.publishing.reason]);
+}
+
+function renderStatus(s) {
+  maxUploadMb = s.settings.maxUploadMb;
+  canUpload = s.publishing.enabled;
+  $('#file-help').textContent = `MP4 video, or JPG or PNG image. Up to ${maxUploadMb} MB.`;
+  const parts = [];
+  if (s.running) parts.push('Syncing now.');
+  else if (s.revision) {
+    const live = s.publishing.enabled && s.revision === s.publishedRevision;
+    parts.push(`${s.summary.totalAds} ads, revision ${s.revision}${live ? ' is live on Drive' : ' (not published)'}.`);
+  } else parts.push('Waiting for the first scan.');
+  if (s.lastScanAt) parts.push(`Checked ${time(s.lastScanAt)}.`);
+  if (s.nextSyncAt) parts.push(`Next check ${time(s.nextSyncAt)}.`);
+  $('#status-line').textContent = parts.join(' ');
+  $('#ad-folders').replaceChildren(...(s.summary?.adFolders || []).map((name) => Object.assign(document.createElement('option'), { value: name })));
+  showNotices(s);
+}
+
+function renderAds(m) {
+  const rows = $('#rows');
+  rows.replaceChildren();
+  if (!m.ads.length) {
+    const tr = document.createElement('tr');
+    tr.append(cell('No ads yet. Upload one, or add files to a subfolder in Drive and press Sync now.', 'empty'));
+    tr.firstChild.colSpan = 6;
+    rows.append(tr);
+  }
+  for (const ad of m.ads) {
+    const tr = document.createElement('tr');
+    const kind = document.createElement('span');
+    kind.className = `kind ${ad.type}`;
+    kind.textContent = ad.type === 'video' ? 'Video' : 'Image';
+    const typeCell = cell('');
+    typeCell.append(kind);
+    tr.append(
+      cell(ad.order, 'order'),
+      cell(ad.adName, 'ad'),
+      cell(ad.fileName, 'file hide-narrow'),
+      typeCell,
+      cell(ad.durationSec === null ? 'Full video' : duration(ad.durationSec), 'num'),
+      cell(size(ad.sizeBytes), 'num hide-narrow'),
+    );
+    rows.append(tr);
+  }
+  $('#skipped').hidden = !m.skipped.length;
+  $('#skipped-list').replaceChildren(...m.skipped.map((s) => {
+    const li = document.createElement('li');
+    li.textContent = `${s.adName ? `${s.adName}/` : ''}${s.fileName}: ${s.reason}`;
+    return li;
+  }));
+}
+
+async function refresh() {
+  try {
+    const [status, manifest] = await Promise.all([api('/api/status'), api('/api/ads')]);
+    renderStatus(status);
+    renderAds(manifest);
+  } catch (err) {
+    $('#status-line').textContent = `Cannot reach the backend: ${err.message}`;
+  }
+}
+
+$('#sync-btn').addEventListener('click', async () => {
+  const btn = $('#sync-btn');
+  btn.disabled = true;
+  btn.textContent = 'Syncing…';
+  try {
+    await api('/api/sync', { method: 'POST' });
+  } catch { /* the error shows in the notice after refresh */ }
+  btn.disabled = false;
+  btn.textContent = 'Sync now';
+  refresh();
+});
+
+function showResult(kind, lines) {
+  const box = $('#upload-result');
+  box.hidden = false;
+  box.className = kind;
+  box.replaceChildren(...lines.filter(Boolean).map((l) => Object.assign(document.createElement('div'), { textContent: l })));
+}
+
+$('#upload-form').addEventListener('submit', (event) => {
+  event.preventDefault();
+  const file = $('#file').files[0];
+  const adName = $('#ad-name').value.trim();
+  if (!file || !adName) return;
+  const type = file.type || MIME_BY_EXT[file.name.split('.').pop().toLowerCase()] || '';
+  if (!canUpload) {
+    return showResult('bad', ['Uploading needs Drive write access, which is not set up yet.', 'Fix: complete step 5 (npm run auth), save .env, and restart the backend.']);
+  }
+  if (file.size > maxUploadMb * 1048576) {
+    return showResult('bad', [`${file.name} is ${size(file.size)}. The limit is ${maxUploadMb} MB.`, 'Re-encode the video at 1080p, H.264, around 8 Mbps.']);
+  }
+
+  const xhr = new XMLHttpRequest();
+  const query = new URLSearchParams({ adName, fileName: file.name });
+  xhr.open('PUT', `/api/upload?${query}`);
+  xhr.setRequestHeader('Content-Type', type);
+  const progress = $('#progress');
+  const btn = $('#upload-btn');
+  progress.hidden = false;
+  progress.value = 0;
+  btn.disabled = true;
+  btn.textContent = 'Uploading…';
+  $('#upload-result').hidden = true;
+
+  xhr.upload.onprogress = (e) => { if (e.lengthComputable) progress.value = (e.loaded / e.total) * 100; };
+  xhr.upload.onload = () => { btn.textContent = 'Saving to Drive…'; };
+  xhr.onloadend = () => {
+    btn.disabled = false;
+    btn.textContent = 'Upload';
+    progress.hidden = true;
+    let body = {};
+    try { body = JSON.parse(xhr.responseText); } catch { /* not JSON */ }
+    if (xhr.status === 201) {
+      const where = body.folderCreated ? `the new ad "${body.adName}"` : `"${body.adName}"`;
+      const syncLine = body.syncError
+        ? `Saved in Drive, but the sync failed: ${body.syncError.message}`
+        : body.sync?.published ? `Published. It plays as number ${body.sync.totalAds} in the loop.` : 'Added to the run order.';
+      showResult('good', [`Uploaded ${body.file?.name || file.name} to ${where}.`, syncLine]);
+      $('#file').value = '';
+    } else {
+      showResult('bad', [body.error || (xhr.status ? `Upload failed (HTTP ${xhr.status}).` : 'Upload failed: the connection dropped.'), body.hint && `Fix: ${body.hint}`]);
+    }
+    refresh();
+  };
+  xhr.send(file);
+});
+
+refresh();
+setInterval(refresh, 15000);
+</script>
+</body>
+</html>
