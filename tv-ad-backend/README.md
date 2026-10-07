@@ -8,7 +8,7 @@ to the TV at `/tv`. It re-checks every 5 minutes and has an admin page for uploa
 2. Google Cloud: enable the Google Drive API, create an OAuth client (type: Desktop app) and set the consent screen to In production.
 3. `cp .env.example .env`, fill in `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. (`DRIVE_FOLDER_ID` is optional, see below.)
 4. Run `npm run auth` and paste the refresh token into `.env` as `GOOGLE_REFRESH_TOKEN`.
-5. Set `ADMIN_PASSWORD`, run `npm start`, open http://localhost:8080/admin and paste the Drive folder link. The backend checks it and shows the run order.
+5. Set `ADMIN_PASSWORD`, run `npm start`, open http://localhost:8080/ and paste the Drive folder link. The backend checks it and takes you to the TV page.
 6. Open http://localhost:8080/tv on the TV or any browser.
 
 The folder does **not** need to be shared publicly: the backend reads it as your Google account and
@@ -23,15 +23,16 @@ streams the media to the TV. `DRIVE_API_KEY` is only an optional fallback for a 
 | `npm start` | Starts the backend and the admin page, and syncs every `SYNC_INTERVAL_SEC`. |
 | `npm test` | Unit and end-to-end tests against a fake Drive. No internet needed. |
 
-## Choosing the Drive folder
-On first run the admin page shows a single box: paste a Drive folder link (`https://drive.google.com/drive/folders/<ID>`, with or without `?usp=sharing`, or just the ID) and press **Load ads**. The backend then:
-1. extracts the folder ID and rejects file links, non-Drive links and folders it cannot open (with a reason);
-2. reads the folder as your Google account, counts the ads, and warns about empty folders or files left in the main folder;
-3. remembers the folder in `data/state.json` (it survives restarts) and syncs straight away.
+## Choosing the Drive folder (the front page)
+Open `http://<backend-address>:8080/`. The page is just a box and a **Submit** button:
+1. Paste a Drive folder link (`https://drive.google.com/drive/folders/<ID>`, with or without `?usp=sharing`, or just the ID) and press Submit.
+2. The backend extracts the folder ID, rejects file links, non-Drive links and folders it cannot open (with a reason), reads the folder as your Google account, builds `ads.json` and remembers the folder in `data/state.json`.
+3. On success the browser goes straight to `/tv`: the run-order table, then the fullscreen player.
+If the folder has no ads yet, or the link is wrong, the page stays and says why.
 
-Use **Change** in the admin page to switch folders later. A folder chosen in the admin page wins over `DRIVE_FOLDER_ID` in `.env`. If the signed-in account can only view the folder, ads are scanned and played but uploads are switched off.
+The page asks for the admin login first when `ADMIN_PASSWORD` is set. A folder chosen here wins over `DRIVE_FOLDER_ID` in `.env`, which is now optional. If your Google account can only view the folder, ads are scanned and played but uploads are switched off. Until a folder is chosen, `/tv` shows a waiting page.
 
-Until a folder is chosen, `/tv` shows a waiting page that retries every 15 seconds.
+`/admin` is the separate management page (upload, Sync now, view `ads.json`). Its "Change" link goes back to the front page.
 
 ## The TV page (the "browser part")
 - Open `http://<backend-address>:8080/tv` on the TV (or any browser). No login needed.

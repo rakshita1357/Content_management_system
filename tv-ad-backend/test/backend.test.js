@@ -324,3 +324,17 @@ test('upload before any folder is connected explains what to do', async (t) => {
   assert.equal(up.status, 409);
   assert.match((await up.json()).hint, /admin page/);
 });
+
+test('the front page is just a link box that posts to /api/source; admin keeps its own page', async (t) => {
+  const env = await setup({ folderId: '' }); t.after(env.close);
+  assert.equal((await fetch(`${env.base}/`)).status, 401);
+  const home = await fetch(`${env.base}/`, { headers: AUTH, redirect: 'manual' });
+  assert.equal(home.status, 200);
+  const html = await home.text();
+  assert.match(html, /id="link"/);
+  assert.match(html, /\/api\/source/);
+  assert.match(html, /window\.location\.href = '\/tv'/);
+  const admin = await (await fetch(`${env.base}/admin`, { headers: AUTH })).text();
+  assert.match(admin, /Add an ad/);
+  assert.doesNotMatch(admin, /source-form/);
+});

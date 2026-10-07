@@ -7,6 +7,7 @@ import { publicManifest } from './manifest/buildManifest.js';
 import { isAuthorized, readJson, sendJson, sendText } from './lib/http.js';
 
 const ADMIN_PAGE = new URL('../public/admin.html', import.meta.url);
+const START_PAGE = new URL('../public/start.html', import.meta.url);
 
 /**
  * Routes
@@ -16,6 +17,7 @@ const ADMIN_PAGE = new URL('../public/admin.html', import.meta.url);
  *   GET  /api/ads/:id/content  streams one ad's media from Drive, supports Range (no login, only ids in ads.json)
  *   GET  /api/ads/:id          one ad's metadata
  *   GET  /admin                admin page
+ *   GET  /                    start page: one box for a Drive folder link, then on to /tv
  *   GET  /api/status           sync and publishing status
  *   GET  /api/ads              current ads.json
  *   GET  /api/source           the Drive folder in use
@@ -65,7 +67,7 @@ export function createApp({ config, sync, uploads, sources, reader, log = consol
   }
 
   const routes = {
-    'GET /': (req, res) => { res.writeHead(302, { Location: '/admin' }); res.end(); },
+    'GET /': async (req, res) => sendText(res, 200, 'text/html', await readFile(START_PAGE, 'utf8')),
     'GET /admin': async (req, res) => sendText(res, 200, 'text/html', await readFile(ADMIN_PAGE, 'utf8')),
     'GET /api/status': (req, res) => sendJson(res, 200, sync.getStatus()),
     'GET /api/ads': (req, res) => sendJson(res, 200, sync.getManifest() || { ads: [], skipped: [] }),
