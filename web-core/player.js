@@ -54,7 +54,7 @@
   }
 
   function init(fromCache, live) {
-    var IMAGE_SEC = 60;
+    var IMAGE_SEC = 20;   // only used if the ad list carries no time for an image
     var tbody = $('rows');
 
     var cacheCells = {};

@@ -60,7 +60,7 @@ The page asks for the admin login first when `ADMIN_PASSWORD` is set. A folder c
 ## The TV page (`web-core/`)
 The TV page is a set of plain static files in `web-core/` (`index.html`, `app.css`, `player.js`, `cache.js`, `config.js`). The backend serves them at `http://<backend-address>:8080/tv/` with no login, and a packaged TV app (webOS, Android TV) can bundle the very same folder. Nothing in it is generated per ad list: the page loads `/tv/ads.json` when it opens.
 - It shows the run-order table first, with a 10 second countdown, then the fullscreen player starts. Press Enter on "Start playing" to start sooner.
-- Playback: ads in run order, images for `IMAGE_DURATION_SEC` (60), videos until they end, then back to the first ad.
+- Playback: ads in run order, images for `IMAGE_DURATION_SEC` (20 seconds by default), videos until they end, then back to the first ad.
 - Keys: Esc / Back / the small X (bottom-right) return to the table; Left/Right skip to the previous/next ad.
 - The green/red Wi-Fi icon (bottom-left) shows whether the TV can reach the backend.
 - The page re-reads `/tv/ads.json` every sync interval and switches to a new revision at the next ad change.

@@ -175,7 +175,7 @@ test('end to end on a private folder: upload anime/ad1.jpg appears in Run order 
   const ad = (await (await fetch(`${env.base}/api/ads`, { headers: AUTH })).json()).ads.find((a) => a.fileName === 'ad1.jpg');
   assert.equal(ad.adName, 'anime');
   assert.equal(ad.type, 'image');
-  assert.equal(ad.durationSec, 60);
+  assert.equal(ad.durationSec, 20);
   const published = JSON.parse(env.google.bodies.get(fileByName(env.google, 'ads.json').id));
   assert.ok(published.ads.some((a) => a.adName === 'anime' && a.fileName === 'ad1.jpg'));
 });

@@ -70,7 +70,7 @@ export function loadConfig(env = process.env) {
     logFormat: oneOf(env.LOG_FORMAT, ['text', 'json'], 'text', 'LOG_FORMAT'),
     adminUser: env.ADMIN_USER || 'admin',
     adminPassword: env.ADMIN_PASSWORD || '',
-    imageDurationSec: num('IMAGE_DURATION_SEC', 60, 1),
+    imageDurationSec: num('IMAGE_DURATION_SEC', 20, 1),
     syncIntervalSec: num('SYNC_INTERVAL_SEC', 300, 30),
     maxUploadMb: num('MAX_UPLOAD_MB', 500, 1),
     // Off by default: the TV reads the backend, not Drive. Turn on to also keep ads.json/index.html copies in the folder.
