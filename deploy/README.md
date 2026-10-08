@@ -50,6 +50,9 @@ New-NetFirewallRule -DisplayName "TV ads backend" -Direction Inbound -Protocol T
 ```
 Keep `web-core\` next to `tv-ad-backend\`. The service starts when Windows starts, before anyone signs in.
 
+## Render (hosted)
+See **`RENDER.md`** (and `../render.yaml`): the backend on the internet with https, no router or firewall setup. The free plan sleeps and forgets `data/`; use a paid plan with a disk for real use.
+
 ## Docker
 ```
 cd deploy

@@ -44,7 +44,16 @@ export function createApp({ config, sync, uploads, sources, reader, screens = cr
     error: (m, f) => rawLog.error(m, f),
   };
   const webVersion = createWebVersion(config.webCoreDir);
-  const clientIp = (req) => (config.trustProxy ? String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() : '') || req.socket.remoteAddress || 'unknown';
+  // Who is calling. Behind N trusted proxies each adds the address it saw to the END of X-Forwarded-For, so the real client
+  // is the Nth entry from the end. Entries before that can be made up by the caller and are never trusted.
+  const clientIp = (req) => {
+    if (config.trustProxy > 0) {
+      const chain = String(req.headers['x-forwarded-for'] || '').split(',').map((s) => s.trim()).filter(Boolean);
+      const seen = chain[chain.length - config.trustProxy];
+      if (seen) return seen;
+    }
+    return req.socket.remoteAddress || 'unknown';
+  };
   // The TV page is a set of static files from web-core/ (the same files a packaged TV app bundles).
   const WEB_CORE_TYPES = {
     'index.html': 'text/html; charset=utf-8',

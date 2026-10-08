@@ -1,0 +1,38 @@
+# Render Blueprint for the TV ads backend. In Render: New > Blueprint > pick this repository. Steps: deploy/RENDER.md
+# Secrets (sync: false) are asked for in the Render dashboard; they are never stored in the repository.
+services:
+  - type: web
+    name: tv-ads
+    runtime: node
+    # "starter" or higher, because it needs a disk (below) and must not go to sleep. The free plan sleeps and forgets its
+    # data/ folder: see deploy/RENDER.md for how to run on free anyway.
+    plan: starter
+    buildCommand: echo "nothing to build"
+    startCommand: node tv-ad-backend/src/server.js
+    healthCheckPath: /healthz
+    autoDeploy: false
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: HOST
+        value: 0.0.0.0
+      - key: TRUST_PROXY
+        value: "1"
+      - key: DATA_DIR
+        value: /var/data
+      - key: LOG_FORMAT
+        value: json
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REFRESH_TOKEN
+        sync: false
+      - key: DRIVE_FOLDER_ID
+        sync: false
+    disk:
+      name: tvads-data
+      mountPath: /var/data
+      sizeGB: 1

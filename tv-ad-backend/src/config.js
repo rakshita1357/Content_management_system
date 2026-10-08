@@ -22,6 +22,14 @@ function oneOf(value, allowed, fallback, name) {
   return value;
 }
 
+function proxyHops(value) {
+  if (value === undefined || value === '' || value === 'false' || value === '0') return 0;
+  if (value === 'true') return 1;
+  const n = Number(value);
+  if (Number.isInteger(n) && n >= 1 && n <= 5) return n;
+  throw new Error('TRUST_PROXY must be false, true, or the number of proxies in front of the backend (1 to 5).');
+}
+
 function tlsFrom(env) {
   const certFile = env.TLS_CERT_FILE || '';
   const keyFile = env.TLS_KEY_FILE || '';
@@ -55,7 +63,8 @@ export function loadConfig(env = process.env) {
     },
     // Where to listen. Empty = chosen from the admin password (see lib/security.js).
     host: env.HOST || '',
-    trustProxy: env.TRUST_PROXY === 'true',
+    // How many proxies sit in front of the backend (0 = none). TRUST_PROXY=true means 1, a number means that many.
+    trustProxy: proxyHops(env.TRUST_PROXY),
     tls: tlsFrom(env),
     logLevel: oneOf(env.LOG_LEVEL, ['debug', 'info', 'warn', 'error'], 'info', 'LOG_LEVEL'),
     logFormat: oneOf(env.LOG_FORMAT, ['text', 'json'], 'text', 'LOG_FORMAT'),
