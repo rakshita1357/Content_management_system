@@ -87,6 +87,23 @@ test('too many wrong passwords get a 429 even for the right password; asking wit
   assert.equal((await fetch(`${env.base}/api/health`)).status, 200, 'the TV routes are not affected');
 });
 
+test('behind a proxy the client is the address the proxy added, so a made-up X-Forwarded-For cannot dodge the lockout', async (t) => {
+  const env = await setup({ env: { TRUST_PROXY: 'true' } }); t.after(env.close);
+  const attempt = (forwarded) => fetch(`${env.base}/api/status`, { headers: { ...BAD, 'X-Forwarded-For': forwarded } });
+  // the caller invents a new leading address every time; the proxy (the last entry) always saw the same real client
+  for (let i = 0; i < 10; i++) assert.equal((await attempt(`10.0.0.${i}, 203.0.113.9`)).status, 401);
+  assert.equal((await attempt('10.9.9.9, 203.0.113.9')).status, 429, 'locked out despite the invented address');
+  const other = await fetch(`${env.base}/api/status`, { headers: { ...AUTH, 'X-Forwarded-For': '198.51.100.7' } });
+  assert.equal(other.status, 200, 'a different real client is not affected');
+  assert.equal((await fetch(`${env.base}/api/status`, { headers: { ...AUTH, 'X-Forwarded-For': '10.1.1.1, 203.0.113.9' } })).status, 429);
+});
+
+test('without TRUST_PROXY the header is ignored completely', async (t) => {
+  const env = await setup(); t.after(env.close);
+  for (let i = 0; i < 10; i++) await fetch(`${env.base}/api/status`, { headers: { ...BAD, 'X-Forwarded-For': `10.0.0.${i}` } });
+  assert.equal((await fetch(`${env.base}/api/status`, { headers: { ...AUTH, 'X-Forwarded-For': '10.7.7.7' } })).status, 429);
+});
+
 test('a request started by another website is refused; the same site and non-browser clients are fine', async (t) => {
   const env = await setup(); t.after(env.close);
   const post = (origin) => fetch(`${env.base}/api/sync`, { method: 'POST', headers: { ...AUTH, ...(origin ? { Origin: origin } : {}) } });
@@ -235,4 +252,8 @@ test('config: https needs both files, log settings are checked, HOST is passed t
   assert.throws(() => loadConfig({ ...base, LOG_FORMAT: 'xml' }), /LOG_FORMAT must be one of/);
   assert.equal(loadConfig({ ...base, HOST: '0.0.0.0' }).host, '0.0.0.0');
   assert.equal(loadConfig(base).logLevel, 'info');
+  assert.equal(loadConfig(base).trustProxy, 0);
+  assert.equal(loadConfig({ ...base, TRUST_PROXY: 'true' }).trustProxy, 1);
+  assert.equal(loadConfig({ ...base, TRUST_PROXY: '2' }).trustProxy, 2);
+  assert.throws(() => loadConfig({ ...base, TRUST_PROXY: 'maybe' }), /TRUST_PROXY must be/);
 });

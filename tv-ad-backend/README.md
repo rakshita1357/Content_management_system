@@ -16,7 +16,6 @@ streams the media to the TV. `DRIVE_API_KEY` is only an optional fallback for a 
 "Anyone with the link: Viewer" when OAuth is not set up.
 
 ## Running it for real
-See **`../deploy/README.md`**: running as a service (systemd, Windows, Docker), https, backups, updating, monitoring and a security checklist.
 Run `npm run doctor` on the machine first: it checks the installation and says what to fix.
 - The backend only listens on the local network when `ADMIN_PASSWORD` is real (8+ characters, not a placeholder). Otherwise it accepts connections from its own computer only (override with `HOST`).
 - Wrong admin passwords are limited (10 in 10 minutes, then that address waits 10 minutes); requests started by another website are refused; unexpected errors stop the program so the service manager restarts it; a damaged `data/state.json` is kept aside and the backend starts clean.
@@ -97,7 +96,7 @@ If IndexedDB is blocked (some private modes), the page streams from the backend 
 **Tests:** `npm test` (backend, fake Drive) and `npm run test:browser` (a real headless Chromium against the real backend and a fake Drive: caching, offline play, restarts, folder change, failed downloads, incremental updates). The browser tests need Playwright (`PLAYWRIGHT_MODULE=/path/to/playwright`) and ffmpeg; they skip themselves without them.
 
 ## Android TV app
-`../wrappers/androidtv/` is a thin Android app around this same `web-core/` page: it opens even when the backend is down, plays with sound without a key press, keeps the screen awake and can start when the TV switches on. See its README for building and installing.
+`../wrappers/androidtv/` is a thin Android app around this same `web-core/` page: it opens even when the backend is down, plays with sound without a key press, keeps the screen awake and can start when the TV switches on. Build it with Android Studio, or `./gradlew assembleDebug` in that folder (add `-Ptvads.defaultServer=http://<backend address>:<port>` to build the server address in); install the APK with `adb install`.
 
 ## Trying it on an Android TV (browser)
 1. Put the TV and the computer running the backend on the same Wi-Fi/network.
