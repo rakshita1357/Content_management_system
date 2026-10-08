@@ -1,4 +1,5 @@
-# systemd unit for the TV ads backend (Linux). Install: see deploy/README.md
+# systemd unit for the TV ads backend (Linux). Copy to /etc/systemd/system/tvads.service, adjust User and the paths,
+# then: systemctl daemon-reload && systemctl enable --now tvads
 [Unit]
 Description=TV ads backend
 After=network-online.target

@@ -97,7 +97,7 @@ server.listen(config.port, host, () => {
     if (!lan.length) log.info('No network address found. The TV can only reach this backend over a network.');
     if (isWeakPassword(config.adminPassword)) log.warn('The admin password is empty, short or a placeholder and the backend is open to the network. Set a real ADMIN_PASSWORD.');
   }
-  if (!tls && host !== '127.0.0.1') log.info('Traffic is not encrypted (http). For anything beyond a trusted local network use https: see deploy/README.md.');
+  if (!tls && host !== '127.0.0.1') log.info('Traffic is not encrypted (http). For anything beyond a trusted local network use https (TLS_CERT_FILE and TLS_KEY_FILE, or a reverse proxy).');
   if (!writer) log.info('Drive write access is not set up: scanning and playing work, uploads are off.');
   sync.start();
 });

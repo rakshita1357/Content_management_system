@@ -1,11 +1,11 @@
-# Render Blueprint for the TV ads backend. In Render: New > Blueprint > pick this repository. Steps: deploy/RENDER.md
+# Render Blueprint for the TV ads backend. In Render: New > Blueprint > pick this repository.
 # Secrets (sync: false) are asked for in the Render dashboard; they are never stored in the repository.
 services:
   - type: web
     name: tv-ads
     runtime: node
     # "starter" or higher, because it needs a disk (below) and must not go to sleep. The free plan sleeps and forgets its
-    # data/ folder: see deploy/RENDER.md for how to run on free anyway.
+    # data/ folder (set DRIVE_FOLDER_ID so a restarted free service reconnects to your folder by itself).
     plan: starter
     buildCommand: echo "nothing to build"
     startCommand: node tv-ad-backend/src/server.js
