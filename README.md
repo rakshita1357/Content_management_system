@@ -1,12 +1,25 @@
-# TV ad display: backend (Phase 1)
+# TV ad display
+
+Plays ads (images and videos) from a Google Drive folder on a TV, and keeps playing them when the internet or the server goes away.
+
+| Folder | What it is |
+|---|---|
+| `tv-ad-backend/` | The server: reads Drive, serves the TV page, admin page and ad files. **Run the commands below inside this folder.** |
+| `web-core/` | The TV page itself (plain HTML/JS), served by the server and also bundled in the Android app. |
+| `wrappers/androidtv/` | Android TV app that wraps `web-core/`. |
+| `deploy/`, `render.yaml` | Service, Docker, https and Render deployment files. |
+
+## What it does
 
 Scans a Google Drive folder (one subfolder per ad), builds `ads.json`, and serves it and the TV page
 to the TV at `/tv/`. It re-checks every 5 minutes and has an admin page for uploading ads. Requires Node.js 22 or newer. No npm packages needed.
 
 ## Setup in short
+Run all `npm` and `cp`/`copy` commands from the `tv-ad-backend` folder (`cd tv-ad-backend`).
+
 1. Drive: create a folder (or use one your Google account can open). You will paste its link in the admin page (step 5).
 2. Google Cloud: enable the Google Drive API, create an OAuth client (type: Desktop app) and set the consent screen to In production.
-3. `cp .env.example .env`, fill in `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. (`DRIVE_FOLDER_ID` is optional, see below.)
+3. Copy `.env.example` to `.env` (`cp .env.example .env`, or `copy .env.example .env` on Windows), fill in `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. (`DRIVE_FOLDER_ID` is optional, see below.)
 4. Run `npm run auth` and paste the refresh token into `.env` as `GOOGLE_REFRESH_TOKEN`.
 5. Set `ADMIN_PASSWORD`, run `npm start`, open http://localhost:8080/ and paste the Drive folder link. The backend checks it and takes you to the TV page.
 6. Open http://localhost:8080/tv on the TV or any browser.
@@ -45,7 +58,7 @@ The page asks for the admin login first when `ADMIN_PASSWORD` is set. A folder c
 `/admin` is the separate management page (upload, Sync now, view `ads.json`). Its "Change" link goes back to the front page.
 
 ## The TV page (`web-core/`)
-The TV page is a set of plain static files in `../web-core/` (`index.html`, `app.css`, `player.js`, `cache.js`, `config.js`). The backend serves them at `http://<backend-address>:8080/tv/` with no login, and a packaged TV app (webOS, Android TV) can bundle the very same folder. Nothing in it is generated per ad list: the page loads `/tv/ads.json` when it opens.
+The TV page is a set of plain static files in `web-core/` (`index.html`, `app.css`, `player.js`, `cache.js`, `config.js`). The backend serves them at `http://<backend-address>:8080/tv/` with no login, and a packaged TV app (webOS, Android TV) can bundle the very same folder. Nothing in it is generated per ad list: the page loads `/tv/ads.json` when it opens.
 - It shows the run-order table first, with a 10 second countdown, then the fullscreen player starts. Press Enter on "Start playing" to start sooner.
 - Playback: ads in run order, images for `IMAGE_DURATION_SEC` (60), videos until they end, then back to the first ad.
 - Keys: Esc / Back / the small X (bottom-right) return to the table; Left/Right skip to the previous/next ad.
@@ -96,7 +109,7 @@ If IndexedDB is blocked (some private modes), the page streams from the backend 
 **Tests:** `npm test` (backend, fake Drive) and `npm run test:browser` (a real headless Chromium against the real backend and a fake Drive: caching, offline play, restarts, folder change, failed downloads, incremental updates). The browser tests need Playwright (`PLAYWRIGHT_MODULE=/path/to/playwright`) and ffmpeg; they skip themselves without them.
 
 ## Android TV app
-`../wrappers/androidtv/` is a thin Android app around this same `web-core/` page: it opens even when the backend is down, plays with sound without a key press, keeps the screen awake and can start when the TV switches on. Build it with Android Studio, or `./gradlew assembleDebug` in that folder (add `-Ptvads.defaultServer=http://<backend address>:<port>` to build the server address in); install the APK with `adb install`.
+`wrappers/androidtv/` is a thin Android app around this same `web-core/` page: it opens even when the backend is down, plays with sound without a key press, keeps the screen awake and can start when the TV switches on. Build it with Android Studio, or `./gradlew assembleDebug` in that folder (add `-Ptvads.defaultServer=http://<backend address>:<port>` to build the server address in); install the APK with `adb install`.
 
 ## Trying it on an Android TV (browser)
 1. Put the TV and the computer running the backend on the same Wi-Fi/network.
@@ -122,17 +135,18 @@ A browser tab is for testing. For a TV that runs on its own, an installed Androi
 
 ## Layout
 ```
-src/config.js                  settings from .env, supported formats
-src/drive/publicReader.js      lists folders and streams media (OAuth, or API key fallback)
-src/drive/oauth.js             refresh token -> access token
-src/drive/writer.js            creates folders, overwrites the ads.json copy, streams uploads
-src/manifest/buildManifest.js  Drive listing -> ads.json (pure function)
-src/manifest/validate.js       checks ads.json before publishing
-src/services/syncService.js    scan, compare revision, publish, 5-minute timer
-src/services/uploadService.js  checks uploads and puts them in the right subfolder
-src/app.js                     HTTP routes and login
-public/start.html              front page: one box for the Drive folder link
-public/admin.html              admin page (upload, Sync now)
-../web-core/                   the TV page: index.html, app.css, player.js, cache.js, config.js (shared with TV wrappers)
-docs/ads.schema.json           ads.json format
+tv-ad-backend/src/config.js                  settings from .env, supported formats
+tv-ad-backend/src/drive/publicReader.js      lists folders and streams media (OAuth, or API key fallback)
+tv-ad-backend/src/drive/oauth.js             refresh token -> access token
+tv-ad-backend/src/drive/writer.js            creates folders, overwrites the ads.json copy, streams uploads
+tv-ad-backend/src/manifest/buildManifest.js  Drive listing -> ads.json (pure function)
+tv-ad-backend/src/manifest/validate.js       checks ads.json before publishing
+tv-ad-backend/src/services/syncService.js    scan, compare revision, publish, 5-minute timer
+tv-ad-backend/src/services/uploadService.js  checks uploads and puts them in the right subfolder
+tv-ad-backend/src/app.js                     HTTP routes and login
+tv-ad-backend/public/start.html              front page: one box for the Drive folder link
+tv-ad-backend/public/admin.html              admin page (upload, Sync now)
+tv-ad-backend/docs/ads.schema.json           ads.json format
+web-core/                                    the TV page: index.html, app.css, player.js, cache.js, config.js (shared with the Android app)
+wrappers/androidtv/                          Android TV app
 ```
