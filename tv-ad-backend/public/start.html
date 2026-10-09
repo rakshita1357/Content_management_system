@@ -99,10 +99,28 @@ async function load(link, replace) {
   return true;
 }
 
+// The folder that is already connected (and whether it has ads), so its link can open the TV page at once.
+let connected = null;
+
+// Same shapes parseFolderInput accepts on the server: .../folders/<ID>, ...?id=<ID>, or the bare ID.
+function folderIdOf(text) {
+  const t = String(text || '').trim();
+  if (/^[A-Za-z0-9_-]{10,}$/.test(t)) return t;
+  const m = t.match(/\/folders\/([A-Za-z0-9_-]{10,})/) || t.match(/[?&]id=([A-Za-z0-9_-]{10,})/);
+  return m ? m[1] : null;
+}
+
 $('#form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const btn = $('#go');
   const link = $('#link').value;
+  // Same folder as the one already playing: show the ad list straight away. The server refreshes it in the background.
+  if (connected && folderIdOf(link) === connected) {
+    btn.disabled = true;
+    try { fetch('/api/source', { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ link, replace: false }) }).catch(() => {}); } catch (err) { /* the TV page still opens */ }
+    window.location.href = '/tv/';
+    return;
+  }
   btn.disabled = true;
   say('info', ['Checking the folder…']);
   try {
@@ -122,8 +140,9 @@ $('#form').addEventListener('submit', async (e) => {
   }
 });
 
-fetch('/api/source').then((r) => r.json()).then(({ source }) => {
+Promise.all([fetch('/api/source').then((r) => r.json()), fetch('/api/health').then((r) => r.json()).catch(() => ({}))]).then(([{ source }, health]) => {
   if (!source) return;
+  if (health.ads > 0) connected = source.folderId;
   $('#current').hidden = false;
   $('#current').textContent = `Current folder: ${source.folderName || 'connected'}`;
 }).catch(() => {});
