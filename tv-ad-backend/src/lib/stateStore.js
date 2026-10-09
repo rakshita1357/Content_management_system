@@ -46,6 +46,8 @@ export function createStateStore(dataDir, log = null) {
       if (!manifest) return rm(manifestFile, { force: true });
       return writeAtomic(manifestFile, JSON.stringify(manifest));
     },
+    // A separate store for one more folder (its own state and ad list), kept in a sub-folder of the data folder.
+    scoped: (name) => createStateStore(path.join(dataDir, 'folders', String(name).replace(/[^A-Za-z0-9_-]/g, '_')), log),
     loadScreens: async () => (await readJson(screensFile)) || [],
     saveScreens: (rows) => writeAtomic(screensFile, JSON.stringify(rows)),
     close: async () => {},

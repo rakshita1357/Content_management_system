@@ -178,12 +178,14 @@ export function createSyncService({ config, reader, writer, store, log = console
     });
   }
 
-  function start() {
+  // first: false when the caller has just synced and only wants the repeating timer.
+  function start({ first = true } = {}) {
     const tick = () => {
       const wait = nextDelayMs(state.failures, config.syncIntervalSec);
       state.nextSyncAt = new Date(Date.now() + wait).toISOString();
       timer = setTimeout(() => sync().catch(() => {}).finally(tick), wait);
     };
+    if (!first) return tick();
     sync({ reason: 'startup' }).catch(() => {}).finally(tick);
   }
 

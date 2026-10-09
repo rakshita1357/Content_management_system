@@ -73,6 +73,13 @@
   .kind.image { background: #e7e1fb; color: #46348f; }
   .empty { color: var(--muted); }
   #skipped { margin-top: 18px; padding: 12px 14px; background: var(--bad-bg); border-radius: 6px; font-size: 15px; }
+  .pairbar { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 12px 0 6px; }
+  .pairbar input { flex: 1 1 180px; width: auto; }
+  .pairbar .primary { margin: 0; width: auto; }
+  #pair-result { margin: 8px 0 10px; padding: 10px 12px; border-radius: 6px; font-size: 15px; }
+  #pair-result.good { background: var(--good-bg); color: #1d5039; }
+  #pair-result.bad { background: var(--bad-bg); color: #6d2614; }
+  .rowbtn { padding: 5px 10px; font-size: 13px; background: #e7edf2; color: #1f3347; border-color: var(--line); margin: 2px 4px 2px 0; }
   #skipped ul { margin: 6px 0 0; padding-left: 18px; }
   .folderbar { margin: 18px 32px 0; color: var(--muted); font-size: 15px; }
   .folderbar strong { color: var(--ink); }
@@ -107,7 +114,7 @@
 </div>
 
 <main id="main">
-  <section class="panel">
+  <section class="panel" id="add-panel">
     <h2>Add an ad</h2>
     <form id="upload-form">
       <label for="ad-name">Ad name</label>
@@ -125,7 +132,7 @@
     </form>
   </section>
 
-  <section class="panel">
+  <section class="panel" id="order-panel">
     <h2>Run order</h2>
     <div class="table-wrap">
       <table>
@@ -138,11 +145,19 @@
 
   <section class="panel wide">
     <h2>Screens</h2>
-    <p class="help" id="screens-help">Each TV reports in every minute while its page is open.</p>
+    <p class="help" id="screens-help">Each TV reports in every minute while its page is open. A TV plays the main folder unless you give it its own.</p>
+    <form id="pair-form" class="pairbar">
+      <strong>Pair a TV</strong>
+      <input type="text" id="pair-code" maxlength="12" required autocomplete="off" spellcheck="false" placeholder="Code shown on the TV" aria-label="Pairing code shown on the TV">
+      <input type="text" id="pair-link" required autocomplete="off" spellcheck="false" placeholder="Drive folder link for this TV" aria-label="Drive folder link">
+      <input type="text" id="pair-name" maxlength="60" autocomplete="off" placeholder="Name (optional)" aria-label="Screen name">
+      <button class="primary" id="pair-btn" type="submit">Pair</button>
+    </form>
+    <div id="pair-result" hidden></div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Screen</th><th>Drive folder</th><th>Status</th><th>Ad list</th><th class="hide-narrow">Saved offline</th><th class="hide-narrow">Page</th><th class="num">Last seen</th></tr></thead>
-        <tbody id="screens"><tr><td colspan="7" class="empty">No screen has reported in yet. Open the TV page on a TV.</td></tr></tbody>
+        <thead><tr><th>Screen</th><th>Drive folder</th><th>Status</th><th>Ad list</th><th class="hide-narrow">Saved offline</th><th class="hide-narrow">Page</th><th class="num">Last seen</th><th></th></tr></thead>
+        <tbody id="screens"><tr><td colspan="8" class="empty">No screen has reported in yet. Open the TV page on a TV.</td></tr></tbody>
       </table>
     </div>
   </section>
@@ -195,7 +210,8 @@ function showNotices(status) {
 
 function renderSetup(s) {
   const first = s.needsSetup;
-  $('#main').hidden = first;
+  $('#add-panel').hidden = first;   // the Screens panel stays: TVs can be paired to their own folders without a main folder
+  $('#order-panel').hidden = first;
   $('.actions').hidden = first;
   $('#folderbar').hidden = first;
   if (!first) {
@@ -272,13 +288,41 @@ function ago(sec) {
   return `${Math.round(sec / 86400)} days ago`;
 }
 
+// "Change folder" gives the TV its own folder; "Use main folder" takes it away again.
+function screenButtons(s) {
+  const td = document.createElement('td');
+  const change = Object.assign(document.createElement('button'), { type: 'button', className: 'rowbtn', textContent: s.folderName ? 'Change folder' : 'Own folder…' });
+  change.onclick = async () => {
+    const link = prompt(`Paste the Drive folder link for ${s.label || s.name || 'this TV'}:`);
+    if (!link) return;
+    change.disabled = true;
+    try {
+      await api('/api/screens/assign', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: s.id, link }) });
+    } catch (err) {
+      alert([err.message, err.hint && `Fix: ${err.hint}`].filter(Boolean).join('\n'));
+    }
+    refresh();
+  };
+  td.append(change);
+  if (s.folderName) {
+    const back = Object.assign(document.createElement('button'), { type: 'button', className: 'rowbtn', textContent: 'Use main folder' });
+    back.onclick = async () => {
+      back.disabled = true;
+      try { await api('/api/screens/unassign', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: s.id }) }); } catch (err) { alert(err.message); }
+      refresh();
+    };
+    td.append(back);
+  }
+  return td;
+}
+
 function renderScreens(data) {
   const rows = $('#screens');
   rows.replaceChildren();
   if (!data.screens.length) {
     const tr = document.createElement('tr');
     tr.append(cell('No screen has reported in yet. Open the TV page on a TV.', 'empty'));
-    tr.firstChild.colSpan = 7;
+    tr.firstChild.colSpan = 8;
     rows.append(tr);
     return;
   }
@@ -289,7 +333,7 @@ function renderScreens(data) {
     status.className = `tag ${stale || !s.online ? 'bad' : s.playing ? 'good' : 'idle'}`;
     status.textContent = stale ? `Not seen for ${ago(s.ageSec).replace(' ago', '')}` : !s.online ? 'Offline (cannot reach this server)' : s.playing ? `Playing ${s.playing}` : 'Showing the ad list';
     const list = document.createElement('span');
-    const current = s.revision && s.revision === data.currentRevision;
+    const current = s.revision && s.revision === (s.currentRevision || data.currentRevision);
     list.className = `tag ${current ? 'good' : 'idle'}`;
     list.textContent = current ? 'Up to date' : s.revision ? 'Older list' : 'Unknown';
     const sc = cell(s.name || s.id.slice(0, 11), 'ad');
@@ -297,10 +341,11 @@ function renderScreens(data) {
     const sct = cell(''); sct.append(status);
     const lt = cell(''); lt.append(list);
     tr.append(
-      sc, cell(s.folder || 'Unknown', s.folder ? 'ad' : 'empty'), sct, lt,
+      sc, cell(s.folderName || `Main folder${data.mainFolder ? ` (${data.mainFolder})` : ''}`, s.folderName ? 'ad' : 'empty'), sct, lt,
       cell(`${s.adsSaved} of ${s.adsTotal} ads, ${size(s.cacheBytes)}${s.quotaBytes ? ` of about ${size(s.quotaBytes)}` : ''}`, 'hide-narrow'),
       cell(s.version || '', 'hide-narrow file'),
       cell(ago(s.ageSec), 'num'),
+      screenButtons(s),
     );
     rows.append(tr);
   }
@@ -326,6 +371,30 @@ $('#sync-btn').addEventListener('click', async () => {
   } catch { /* the error shows in the notice after refresh */ }
   btn.disabled = false;
   btn.textContent = 'Sync now';
+  refresh();
+});
+
+$('#pair-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const btn = $('#pair-btn');
+  const box = $('#pair-result');
+  btn.disabled = true;
+  box.hidden = false;
+  box.className = '';
+  box.textContent = 'Checking the folder and pairing…';
+  try {
+    const body = await api('/api/screens/assign', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: $('#pair-code').value, link: $('#pair-link').value, name: $('#pair-name').value.trim() || undefined }),
+    });
+    box.className = 'good';
+    box.textContent = `Paired. This TV now plays "${body.folder}" (${body.ads} ad${body.ads === 1 ? '' : 's'}).`;
+    $('#pair-form').reset();
+  } catch (err) {
+    box.className = 'bad';
+    box.textContent = [err.message, err.hint && `Fix: ${err.hint}`].filter(Boolean).join(' ');
+  }
+  btn.disabled = false;
   refresh();
 });
 

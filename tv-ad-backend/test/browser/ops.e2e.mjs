@@ -149,3 +149,36 @@ t('TEST 20: after the link was processed, no Drive/internet is needed: a new tab
   assert.equal(env.backend.sync.getSource().folderName, 'Drive A');
   assert.equal((await page.db(front)).keys.length, 3);
 });
+
+t('TEST 23: admin page: pair a TV with the code and a folder link, see it in the Screens table, and give it back to the main folder', {}, async (env) => {
+  const tv = await open(env);
+  await page.waitSaved(tv, 3);
+  await until(async () => /^[A-Z2-9]{3} [A-Z2-9]{3}$/.test(await tv.innerText('#f-pair')), { what: 'the code on the TV' });
+  const code = (await tv.innerText('#f-pair')).replace(' ', '');
+  await until(async () => (await screens(env)).screens.length === 1, { what: 'the TV in the list' });
+
+  const admin = await env.context.newPage();
+  admin.on('pageerror', (e) => assert.fail(`page error: ${e.message}`));
+  await admin.goto(`${env.backend.base}/admin`);
+  await admin.waitForSelector('#screens tr');
+  assert.match(await admin.innerText('#screens'), /Main folder \(Drive A\)/);
+
+  // a wrong code is explained, nothing changes
+  await admin.fill('#pair-code', 'ZZZZZZ');
+  await admin.fill('#pair-link', 'https://drive.google.com/drive/folders/DRIVE_B_ROOT_FOLDER_12');
+  await admin.click('#pair-btn');
+  await until(async () => /not found or has expired/.test(await admin.innerText('#pair-result')), { what: 'the wrong-code message' });
+  assert.equal(await admin.getAttribute('#pair-result', 'class'), 'bad');
+
+  // the right code
+  await admin.fill('#pair-code', code.toLowerCase());
+  await admin.click('#pair-btn');
+  await until(async () => /Paired\. This TV now plays "Drive B" \(2 ads\)/.test(await admin.innerText('#pair-result')), { what: 'the success message' });
+  await until(async () => /Lobby|Drive B/.test(await admin.innerText('#screens')) && (await admin.innerText('#screens')).includes('Use main folder'), { what: 'the table shows the new folder' });
+  assert.equal((await (await fetch(`${env.backend.base}/tv/ads.json?screen=${(await screens(env)).screens[0].id}`)).json()).summary.totalAds, 2);
+
+  // "Use main folder" takes it away again
+  await admin.click('#screens button:has-text("Use main folder")');
+  await until(async () => /Main folder \(Drive A\)/.test(await admin.innerText('#screens')), { what: 'back on the main folder' });
+  assert.equal((await (await fetch(`${env.backend.base}/tv/ads.json?screen=${(await screens(env)).screens[0].id}`)).json()).summary.totalAds, 3);
+});

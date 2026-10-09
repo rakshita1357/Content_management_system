@@ -13,6 +13,8 @@ import { createStateStore } from './lib/stateStore.js';
 import { createPgStore } from './lib/pgStore.js';
 import { appVersion } from './lib/version.js';
 import { createScreensService } from './services/screensService.js';
+import { createPairingService } from './services/pairingService.js';
+import { createFolderHub } from './services/folderHub.js';
 import { createSyncService } from './services/syncService.js';
 import { createUploadService } from './services/uploadService.js';
 import { createSourceService } from './services/sourceService.js';
@@ -70,7 +72,9 @@ if (config.tls) {
   }
 }
 
-const server = createApp({ config, sync, uploads, sources, reader, screens, tls, log });
+const pairing = createPairingService();
+const hub = createFolderHub({ config, reader, writer, store, mainSync: sync, log });
+const server = createApp({ config, sync, uploads, sources, reader, screens, pairing, hub, tls, log });
 server.requestTimeout = 0; // large video uploads can take longer than Node's default 5 minutes
 
 const host = chooseHost(config);
@@ -106,11 +110,14 @@ server.listen(config.port, host, () => {
   if (!tls && host !== '127.0.0.1') log.info('Traffic is not encrypted (http). For anything beyond a trusted local network use https (TLS_CERT_FILE and TLS_KEY_FILE, or a reverse proxy).');
   if (!writer) log.info('Drive write access is not set up: scanning and playing work, uploads are off.');
   sync.start();
+  // Screens that were given their own folder: bring those folders back (their saved ad lists show at once).
+  for (const screen of screens.list().filter((x) => x.folderId)) hub.ensure({ folderId: screen.folderId, folderName: screen.folderName }).catch((err) => log.warn(`Could not restore folder ${screen.folderName || screen.folderId}: ${err.message}`));
 });
 
 const shutdown = () => {
   log.info('Stopping.');
   sync.stop();
+  hub.stopAll();
   // Let the program end by itself once connections are closed (process.exit() right after network use can print a
   // libuv assertion on Windows); the timer is only a safety net if something keeps it alive.
   server.close(() => { process.exitCode = 0; });

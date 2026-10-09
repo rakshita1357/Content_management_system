@@ -332,3 +332,24 @@ test('TEST 15: the hooks used by the Android TV app: native Back is offered to t
   assert.equal(await app.isVisible('#player-root'), false);
   assert.equal(await app.isVisible('#board'), true);
 });
+
+t('TEST 22: pairing: the TV shows a code, the admin pairs it with another Drive folder, and the TV switches to that folder\'s ads', async (env) => {
+  const p = await open(env);
+  await page.waitSaved(p, 3);
+  // not paired yet: the facts line shows a code, easy to read and type
+  await until(async () => (await p.isVisible('#pair-fact')) && /^[A-Z2-9]{3} [A-Z2-9]{3}$/.test(await p.innerText('#f-pair')), { what: 'the pairing code' });
+  assert.equal(await p.innerText('#f-pair-label'), 'Pairing code');
+  const code = (await p.innerText('#f-pair')).replace(' ', '');
+
+  const res = await fetch(`${env.backend.base}/api/screens/assign`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, link: FOLDER_B, name: 'Lobby TV' }) });
+  assert.equal(res.status, 200, await res.clone().text());
+
+  // "Sync now" on the TV asks for this screen's list: the second folder's two ads replace the first folder's three
+  await p.click('#sync-now');
+  await until(async () => (await page.rows(p)).map((r) => r.name).join() === 'b1.png,b2.jpg', { what: 'the second folder\'s ads in the list', timeout: 30000 });
+  await page.waitSaved(p, 2);
+  assert.match(await p.innerText('#f-folder'), /Drive B/);
+  assert.equal((await page.db(p)).committed.sourceName, 'Drive B');
+  await until(async () => /Lobby TV/.test(await p.innerText('#f-pair')), { what: 'the TV says it has its own folder' });
+  assert.equal(await p.innerText('#f-pair-label'), 'This TV');
+});

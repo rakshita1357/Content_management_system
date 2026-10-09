@@ -29,6 +29,25 @@
     return id;
   }
 
+  // The ad list for this screen: the server answers with the Drive folder this screen was given (or the main folder).
+  function adsUrl() { return API + '/tv/ads.json?screen=' + encodeURIComponent(screenId()) + '&t=' + new Date().getTime(); }
+  // Asks whether this screen has its own folder yet and, if not, for the code to type on the admin page.
+  function askPairing(cb) {
+    var x = new XMLHttpRequest();
+    x.open('POST', API + '/tv/pair', true);
+    x.setRequestHeader('Content-Type', 'text/plain;charset=UTF-8');   // a plain request: no cross-origin pre-check needed
+    x.timeout = 8000;
+    x.onload = function () {
+      var r = null;
+      try { r = JSON.parse(x.responseText); } catch (e) {}
+      cb(x.status === 200 ? r : null);
+    };
+    x.onerror = x.ontimeout = function () { cb(null); };
+    try { x.send(JSON.stringify({ id: screenId() })); } catch (e) { cb(null); }
+  }
+  // "ABC123" is easier to read and type as "ABC 123".
+  function spaced(code) { return code ? code.slice(0, 3) + ' ' + code.slice(3) : ''; }
+
   function $(id) { return document.getElementById(id); }
   function pad(n) { return n < 10 ? '0' + n : String(n); }
   function el(tag, cls, text) {
@@ -85,6 +104,22 @@
         extraAt = t;
         cache.info(function (i2) { extra = { quota: i2.quota, lastSyncAt: i2.lastSyncAt }; refreshFacts(); });
       }
+    }
+    // The pairing code (or the folder this screen was given) shown with the other facts; it changes every 15 minutes.
+    function refreshPairing() {
+      askPairing(function (r) {
+        var fact = $('pair-fact');
+        if (!r) return;
+        fact.hidden = false;
+        if (r.assigned) {
+          $('change-folder').hidden = true;   // this TV's folder is chosen on the admin page, not here
+          $('f-pair-label').firstChild.nodeValue = 'This TV';
+          $('f-pair').textContent = (r.label ? r.label + ': ' : 'Own folder: ') + (r.folderName || '');
+        } else {
+          $('f-pair-label').firstChild.nodeValue = 'Pairing code';
+          $('f-pair').textContent = spaced(r.code);
+        }
+      });
     }
     function fetchHealth() {
       var x = new XMLHttpRequest();
@@ -310,7 +345,7 @@
     // ---- pick up new revisions published by the backend (every sync interval)
     function checkUpdate() {
       var x = new XMLHttpRequest();
-      x.open('GET', API + '/tv/ads.json?t=' + new Date().getTime(), true);
+      x.open('GET', adsUrl(), true);
       x.timeout = 20000;
       x.onload = function () {
         if (x.status !== 200) return;
@@ -368,8 +403,8 @@
     $('sync-now').onclick = function () {
       var b = $('sync-now'), x = new XMLHttpRequest();
       b.disabled = true; b.firstChild.nodeValue = 'Syncing';
-      function done() { b.disabled = false; b.firstChild.nodeValue = 'Sync now'; checkUpdate(); }
-      x.open('POST', API + '/tv/sync', true);
+      function done() { b.disabled = false; b.firstChild.nodeValue = 'Sync now'; checkUpdate(); refreshPairing(); }
+      x.open('POST', API + '/tv/sync?screen=' + encodeURIComponent(screenId()), true);
       x.timeout = 120000;
       x.onload = x.onerror = x.ontimeout = done;
       try { x.send(); } catch (e) { done(); }
@@ -387,6 +422,8 @@
     cache.sync(live || data);
     refreshCache();
     fetchHealth();
+    refreshPairing();
+    setInterval(refreshPairing, 60000);
     sendHeartbeat();
     setInterval(sendHeartbeat, 60000);
     window.ADS_PLAYER = { start: startPlayer, stop: stopPlayer };
@@ -411,7 +448,7 @@
 
   function loadManifest(done) {
     var x = new XMLHttpRequest();
-    x.open('GET', API + '/tv/ads.json?t=' + new Date().getTime(), true);
+    x.open('GET', adsUrl(), true);
     x.timeout = 20000;
     x.onload = function () {
       var m = null;
@@ -450,6 +487,12 @@
           $('loading-text').textContent = status === 0
             ? 'Cannot reach the ad server. Trying again shortly.'
             : ((m && m.error) || 'Loading the ads.');
+          if (status === 503) {
+            // Nothing to play yet: show the code that links this TV to a Drive folder on the admin page.
+            askPairing(function (r) {
+              if (r && !r.assigned && r.code) $('loading-text').textContent = 'Pairing code ' + spaced(r.code) + '. Enter it on the admin page of the ad server to choose this TV\'s Drive folder.';
+            });
+          }
           setTimeout(boot, 10000);
         });
       });

@@ -189,7 +189,7 @@ test('screens report in through a public route and are listed for the admin', as
   assert.equal((await fetch(`${env.base}/api/screens`)).status, 401, 'the list is admin only');
   const list = await (await fetch(`${env.base}/api/screens`, { headers: AUTH })).json();
   assert.equal(list.screens.length, 1);
-  assert.deepEqual(Object.keys(list.screens[0]).sort(), ['adsSaved', 'adsTotal', 'ageSec', 'cacheBytes', 'firstSeen', 'folder', 'id', 'kind', 'lastSeen', 'lastSeenAt', 'name', 'online', 'playing', 'quotaBytes', 'revision', 'version']);
+  assert.deepEqual(Object.keys(list.screens[0]).sort(), ['adsSaved', 'adsTotal', 'ageSec', 'cacheBytes', 'currentRevision', 'firstSeen', 'folder', 'folderId', 'folderName', 'id', 'kind', 'label', 'lastSeen', 'lastSeenAt', 'name', 'online', 'pairedAt', 'playing', 'quotaBytes', 'revision', 'version']);
   assert.equal(list.screens[0].playing, 'ad1.jpg');
   assert.equal(list.currentRevision, env.sync.getManifest().revision);
   assert.ok(list.staleAfterSec >= 600);

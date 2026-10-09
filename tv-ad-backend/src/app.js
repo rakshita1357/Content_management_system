@@ -10,6 +10,7 @@ import { isAuthorized, readJson, sendJson, sendText } from './lib/http.js';
 import { createLoginLimiter, isCrossSite } from './lib/security.js';
 import { appVersion, createWebVersion } from './lib/version.js';
 import { createScreensService } from './services/screensService.js';
+import { createPairingService } from './services/pairingService.js';
 
 const ADMIN_PAGE = new URL('../public/admin.html', import.meta.url);
 const START_PAGE = new URL('../public/start.html', import.meta.url);
@@ -35,13 +36,21 @@ const START_PAGE = new URL('../public/start.html', import.meta.url);
  *   PUT  /api/upload?adName=&fileName=   raw file body, streamed to Drive
  *   GET  /preview/ads.json     the manifest as it will be published
  */
-export function createApp({ config, sync, uploads, sources, reader, screens = createScreensService(), tls = null, limiter = createLoginLimiter(), log: rawLog = console }) {
+export function createApp({ config, sync, uploads, sources, reader, screens = createScreensService(), pairing = createPairingService(), hub = null, tls = null, limiter = createLoginLimiter(), log: rawLog = console }) {
   // Works with a plain { info, error } logger as well as the full one.
   const log = {
     debug: (m, f) => (rawLog.debug || (() => {})).call(rawLog, m, f),
     info: (m, f) => rawLog.info(m, f),
     warn: (m, f) => (rawLog.warn || rawLog.info).call(rawLog, m, f),
     error: (m, f) => rawLog.error(m, f),
+  };
+  // Without a folder hub there is only the one main folder.
+  const folders = hub || {
+    forScreen: async () => null,
+    ensure: async () => sync,
+    releaseUnused: () => {},
+    findAd: (id) => sync.getManifest()?.ads.find((a) => a.id === id) || null,
+    all: () => [sync],
   };
   const webVersion = createWebVersion(config.webCoreDir);
   // Who is calling. Behind N trusted proxies each adds the address it saw to the END of X-Forwarded-For, so the real client
@@ -73,17 +82,24 @@ export function createApp({ config, sync, uploads, sources, reader, screens = cr
     res.writeHead(200, { 'Content-Type': WEB_CORE_TYPES[name], 'Cache-Control': 'no-store' });
     res.end(body);
   };
-  const tvManifest = (req, res) => {
-    const manifest = sync.getManifest();
+  // The sync that serves a screen: the one for the folder it was given, otherwise the main folder.
+  const syncFor = async (screenId) => (screenId && await folders.forScreen(screens.get(screenId))) || sync;
+  const screenParam = (url) => {
+    const id = url.searchParams.get('screen');
+    return id && /^[A-Za-z0-9_-]{8,64}$/.test(id) ? id : null;
+  };
+  const tvManifest = async (req, res, url) => {
+    const mine = await syncFor(screenParam(url));
+    const manifest = mine.getManifest();
     if (!manifest) {
-      throw new AppError(503, sync.getStatus().needsSetup
-        ? 'No Drive folder is connected yet. Open the start page on a computer and paste a folder link.'
+      throw new AppError(503, mine.getStatus().needsSetup
+        ? 'No Drive folder is connected yet. Pair this TV from the admin page, or paste a folder link on the start page.'
         : 'Loading the ads. This page retries automatically.');
     }
     sendJson(res, 200, publicManifest(manifest));
   };
   const findAd = (id) => {
-    const ad = sync.getManifest()?.ads.find((a) => a.id === id);
+    const ad = folders.findAd(id);
     if (!ad) throw new AppError(404, 'No such ad. It may have been removed in the last sync.');
     return ad;
   };
@@ -108,7 +124,38 @@ export function createApp({ config, sync, uploads, sources, reader, screens = cr
     'GET /admin': async (req, res) => sendText(res, 200, 'text/html', await readFile(ADMIN_PAGE, 'utf8')),
     'GET /api/status': (req, res) => sendJson(res, 200, { ...sync.getStatus(), serviceAccountEmail: config.serviceAccount?.email || null }),
     'GET /api/ads': (req, res) => sendJson(res, 200, sync.getManifest() || { ads: [], skipped: [] }),
-    'GET /api/screens': (req, res) => sendJson(res, 200, { screens: screens.list(), staleAfterSec: Math.max(3 * config.syncIntervalSec, 600), currentRevision: sync.getManifest()?.revision || null }),
+    'GET /api/screens': (req, res) => {
+      // each screen is compared with the list of its own folder
+      const revisionOf = (folderId) => (folderId ? folders.all().find((s) => s.getSource()?.folderId === folderId) : sync)?.getManifest()?.revision || null;
+      sendJson(res, 200, {
+        screens: screens.list().map((s) => ({ ...s, currentRevision: revisionOf(s.folderId) })),
+        staleAfterSec: Math.max(3 * config.syncIntervalSec, 600),
+        currentRevision: sync.getManifest()?.revision || null,
+        mainFolder: sync.getSource()?.folderName || null,
+      });
+    },
+    // Gives a TV its own Drive folder. Either the code the TV shows, or the id of a screen already in the list.
+    'POST /api/screens/assign': async (req, res) => {
+      const body = await readJson(req);
+      const id = body.code ? pairing.lookup(body.code) : String(body.id || '');
+      const info = await sources.inspect(body.link);
+      if (!info.summary.totalAds) {
+        throw new AppError(400, `"${info.source.folderName}" has no supported ads (MP4, JPG or PNG inside subfolders), so the TV was not changed.`,
+          'Add at least one ad to that folder first, or paste a different link.', 'NO_ADS');
+      }
+      await screens.assign(id, { folderId: info.source.folderId, folderName: info.source.folderName, label: body.name });
+      pairing.release(id);
+      await folders.ensure(info.source, { wait: true });
+      folders.releaseUnused(screens.list());
+      sendJson(res, 200, { ok: true, screen: screens.get(id), folder: info.source.folderName, ads: info.summary.totalAds, warnings: info.warnings });
+    },
+    // Takes the folder away again: the screen goes back to playing the main folder.
+    'POST /api/screens/unassign': async (req, res) => {
+      const body = await readJson(req);
+      await screens.unassign(String(body.id || ''));
+      folders.releaseUnused(screens.list());
+      sendJson(res, 200, { ok: true });
+    },
     'GET /api/source': (req, res) => sendJson(res, 200, { source: sync.getSource() }),
     'POST /api/source': async (req, res) => {
       const body = await readJson(req);
@@ -153,14 +200,24 @@ export function createApp({ config, sync, uploads, sources, reader, screens = cr
     'GET /tv/config.js': webCore('config.js'),
     'GET /tv/cache.js': webCore('cache.js'),
     // The TV's own "Sync now": a normal (not forced) sync, throttled so a remote's key-repeat cannot hammer Drive.
-    'POST /tv/sync': async (req, res) => {
+    'POST /tv/sync': async (req, res, url) => {
+      const mine = await syncFor(screenParam(url));
       const t = Date.now();
-      if (t - lastTvSync < 10_000) return sendJson(res, 200, { throttled: true, ...sync.getHealth() });
+      if (t - lastTvSync < 10_000) return sendJson(res, 200, { throttled: true, ...mine.getHealth() });
       lastTvSync = t;
       try {
-        await sync.sync({ reason: 'tv' });
+        await mine.sync({ reason: 'tv' });
       } catch { /* the failure shows up in health.syncOk and the admin page */ }
-      sendJson(res, 200, { throttled: false, ...sync.getHealth() });
+      sendJson(res, 200, { throttled: false, ...mine.getHealth() });
+    },
+    // A TV asking whether it has been given a folder, and, if not, for the code that links it to the admin page.
+    'POST /tv/pair': async (req, res) => {
+      const body = await readJson(req, 1024);
+      const id = String(body.id || '');
+      if (!/^[A-Za-z0-9_-]{8,64}$/.test(id)) throw new AppError(400, 'Screen id must be 8 to 64 letters, digits, - or _.');
+      const screen = screens.get(id);
+      if (screen?.folderId) return sendJson(res, 200, { assigned: true, folderName: screen.folderName, label: screen.label });
+      sendJson(res, 200, { assigned: false, ...pairing.codeFor(id) });
     },
     'GET /tv/ads.json': tvManifest,
   };
@@ -176,7 +233,8 @@ export function createApp({ config, sync, uploads, sources, reader, screens = cr
     if (tls) res.setHeader('Strict-Transport-Security', 'max-age=15552000');
     res.on('finish', () => {
       const line = `${req.method} ${url.pathname} ${res.statusCode} ${Date.now() - started}ms`;   // never the query string or headers
-      if (res.statusCode >= 500) log.error(line);
+      if (res.statusCode === 503) log.debug(line);   // "not ready yet" answers (no folder, still loading) are expected
+      else if (res.statusCode >= 500) log.error(line);
       else if (res.statusCode === 401 || res.statusCode === 403 || res.statusCode === 429) log.warn(line, { ip: clientIp(req) });
       else log.debug(line);
     });
@@ -186,7 +244,7 @@ export function createApp({ config, sync, uploads, sources, reader, screens = cr
       // A packaged TV app (webOS, Android TV) loads web-core from its own origin, so the TV routes allow cross-origin reads.
       if (content || open) res.setHeader('Access-Control-Allow-Origin', '*');
       if ((req.method === 'GET' || req.method === 'HEAD') && content) return await streamContent(req, res, decodeURIComponent(content[1]));
-      if (open) return await open(req, res);
+      if (open) return await open(req, res, url);
       const ip = clientIp(req);
       const lock = limiter.check(ip);
       if (lock.blocked) {
@@ -208,7 +266,8 @@ export function createApp({ config, sync, uploads, sources, reader, screens = cr
       await handler(req, res, url);
     } catch (err) {
       const status = err.status || 500;
-      if (status >= 500) log.error(`${req.method} ${url.pathname} failed: ${err.stack || err.message}`);
+      if (status === 503) log.debug(`${req.method} ${url.pathname}: ${err.message}`);
+      else if (status >= 500) log.error(`${req.method} ${url.pathname} failed: ${err.stack || err.message}`);
       if (res.headersSent) return res.destroy();
       // If we refused an upload before reading it, read and discard the rest so the browser
       // receives this error (closing the connection early shows up as "connection dropped" on Windows).

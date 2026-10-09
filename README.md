@@ -34,12 +34,19 @@ streams the media to the TV. `DRIVE_API_KEY` is only an optional fallback for a 
 - On Render set the build command to `cd tv-ad-backend && npm ci --omit=dev`.
 - The Screens table shows which Drive folder each TV is playing.
 
+### A Drive folder per TV (pairing)
+By default every TV plays the main folder (the one pasted on the front page). To give a TV its own folder:
+1. Open the TV page on that TV. The facts line shows a **Pairing code** (6 characters, valid 15 minutes, a new one appears after that).
+2. On the admin page, under **Screens → Pair a TV**, type the code, paste the Drive folder link (shared with the service account) and, if you like, a name. Press **Pair**.
+3. Press **Sync now** on the TV (or wait for its next check): it switches to that folder's ads and keeps playing the old ones until the new ones are saved.
+The Screens table shows each TV's folder; **Change folder** and **Use main folder** change it later. Each folder is scanned on its own timer and remembered across restarts.
+
 ## Running it for real
 Run `npm run doctor` on the machine first: it checks the installation and says what to fix.
 - The backend only listens on the local network when `ADMIN_PASSWORD` is real (8+ characters, not a placeholder). Otherwise it accepts connections from its own computer only (override with `HOST`).
 - Wrong admin passwords are limited (10 in 10 minutes, then that address waits 10 minutes); requests started by another website are refused; unexpected errors stop the program so the service manager restarts it; a damaged `data/state.json` is kept aside and the backend starts clean.
 - `GET /api/health` (no login) reports `ok`, `syncOk`, `ads`, `revision`, `lastSuccessAt`, `version` and `webVersion`.
-- The admin page has a **Screens** table: each TV reports in every minute with what it plays, which ad list it has, and how full its offline storage is.
+- The admin page has a **Screens** table: each TV reports in every minute with its Drive folder, what it plays, which ad list it has, and how full its offline storage is.
 - After a restart, an update or a power cut a TV goes straight back to playing (unless someone left the player with X or Back). A browser TV reloads itself between two ads when the backend serves a newer page.
 
 ## Commands

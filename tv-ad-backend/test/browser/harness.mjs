@@ -15,6 +15,9 @@ import { createTokenProvider } from '../../src/drive/oauth.js';
 import { createDriveWriter } from '../../src/drive/writer.js';
 import { createStateStore } from '../../src/lib/stateStore.js';
 import { createSyncService } from '../../src/services/syncService.js';
+import { createFolderHub } from '../../src/services/folderHub.js';
+import { createPairingService } from '../../src/services/pairingService.js';
+import { createScreensService } from '../../src/services/screensService.js';
 import { createUploadService } from '../../src/services/uploadService.js';
 import { createSourceService } from '../../src/services/sourceService.js';
 import { startFakeGoogle } from '../fakeGoogle.js';
@@ -88,12 +91,13 @@ export async function startBackend({ google, dataDir, port = 0, source = null, i
   const store = createStateStore(dataDir);
   const sync = createSyncService({ config, reader, writer, store, log: quiet });
   await sync.init();
-  const app = createApp({ config, sync, uploads: createUploadService({ config, writer, sync }), sources: createSourceService({ reader, sync }), reader, log: quiet });
+  const hub = createFolderHub({ config, reader, writer, store, mainSync: sync, log: quiet });
+  const app = createApp({ config, sync, uploads: createUploadService({ config, writer, sync }), sources: createSourceService({ reader, sync }), reader, screens: createScreensService(), pairing: createPairingService(), hub, log: quiet });
   await new Promise((resolve, reject) => { app.once('error', reject); app.listen(port, '127.0.0.1', resolve); });
   const base = `http://127.0.0.1:${app.address().port}`;
   return {
     app, sync, base, port: app.address().port, store,
-    async close() { app.closeAllConnections(); await new Promise((r) => app.close(r)); },
+    async close() { hub.stopAll(); app.closeAllConnections(); await new Promise((r) => app.close(r)); },
   };
 }
 

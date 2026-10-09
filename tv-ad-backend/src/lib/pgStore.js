@@ -53,8 +53,21 @@ export async function createPgStore(databaseUrl, log = null, { pg = null } = {})
     }
   }
 
+  // A store for one more folder: the same operations under its own keys.
+  const scoped = (name) => ({
+    kind: 'database',
+    init: async () => {},
+    async load() { return (await get(`state:${name}`)) || {}; },
+    save: (state) => set(`state:${name}`, state),
+    loadManifest: () => get(`manifest:${name}`),
+    saveManifest: (manifest) => (manifest ? set(`manifest:${name}`, manifest) : del(`manifest:${name}`)),
+    scoped: () => { throw new Error('scoped stores do not nest'); },
+    close: async () => {},
+  });
+
   return {
     kind: 'database',
+    scoped,
     init,
     async load() { return (await get('state')) || {}; },
     save: (state) => set('state', state),
