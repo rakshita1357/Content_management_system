@@ -48,6 +48,19 @@ test('TEST 1b: pasting a link on the front page (no folder yet) leads to the TV 
   assert.match(await front.innerText('#f-conn'), /Online/);
 });
 
+t('TEST 1c: the front page with the folder already connected opens the TV page at once, even if Drive is unreachable', async (env) => {
+  await new Promise((r) => { env.google.server.closeAllConnections?.(); env.google.server.close(r); });
+  const front = await env.context.newPage();
+  await front.goto(env.backend.base + '/');
+  await until(async () => (await front.innerText('#current')).includes('Drive A'), 'the connected folder is known');
+  const started = Date.now();
+  await front.fill('#link', `https://drive.google.com/drive/u/1/folders/${ROOT_ID}?usp=sharing`);
+  await front.click('#go');
+  await front.waitForURL('**/tv/', { timeout: 5000 });
+  assert.ok(Date.now() - started < 5000);
+  await front.waitForSelector('#rows tr');
+});
+
 t('TEST 2: refresh with internet -> the saved ads are used and nothing is downloaded again', async (env) => {
   const p = await open(env);
   await page.waitSaved(p, 3);
