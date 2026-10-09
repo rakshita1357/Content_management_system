@@ -12,7 +12,7 @@ Plays ads (images and videos) from a Google Drive folder on a TV, and keeps play
 ## What it does
 
 Scans a Google Drive folder (one subfolder per ad), builds `ads.json`, and serves it and the TV page
-to the TV at `/tv/`. It re-checks every 5 minutes and has an admin page for uploading ads. Requires Node.js 22 or newer. No npm packages needed.
+to the TV at `/tv/`. It re-checks every 5 minutes and has an admin page for uploading ads. Requires Node.js 22 or newer. Run `npm install` once in `tv-ad-backend` (it only installs `pg`, used when a database is configured).
 
 ## Setup in short
 Run all `npm` and `cp`/`copy` commands from the `tv-ad-backend` folder (`cd tv-ad-backend`).
@@ -27,6 +27,12 @@ Run all `npm` and `cp`/`copy` commands from the `tv-ad-backend` folder (`cd tv-a
 The folder does **not** need to be shared publicly: the backend reads it as your Google account and
 streams the media to the TV. `DRIVE_API_KEY` is only an optional fallback for a folder shared as
 "Anyone with the link: Viewer" when OAuth is not set up.
+
+### Better for several customers: a service account and a database
+- **Service account instead of a personal login (never expires).** In Google Cloud create a *service account* for the project, add a JSON key, and put the whole key file in `GOOGLE_SERVICE_ACCOUNT_JSON` (or its base64). Each customer then shares their Drive folder with the account's email (Viewer is enough); the admin page shows that email. Uploading ads from the admin page needs an account that owns storage, so with a service account add ads in Drive directly.
+- **Database instead of the disk (survives restarts).** Set `DATABASE_URL` to a Postgres connection string (a free Neon database works: copy it from the Neon dashboard, it ends in `?sslmode=require`). The chosen folder, the ad list and the screens list are then stored there. Without `DATABASE_URL` they are kept in `DATA_DIR` as before.
+- On Render set the build command to `cd tv-ad-backend && npm ci --omit=dev`.
+- The Screens table shows which Drive folder each TV is playing.
 
 ## Running it for real
 Run `npm run doctor` on the machine first: it checks the installation and says what to fix.

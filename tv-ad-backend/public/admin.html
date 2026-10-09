@@ -102,7 +102,7 @@
 <div id="notices"></div>
 
 <div class="folderbar" id="folderbar" hidden>
-  Drive folder: <strong id="folder-name"></strong><span id="folder-readonly" hidden> (view only)</span>
+  Drive folder: <strong id="folder-name"></strong><span id="folder-readonly" hidden> (view only)</span><span id="share-with" hidden></span>
   <a class="linkbtn" href="/">Change</a>
 </div>
 
@@ -141,8 +141,8 @@
     <p class="help" id="screens-help">Each TV reports in every minute while its page is open.</p>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Screen</th><th>Status</th><th>Ad list</th><th class="hide-narrow">Saved offline</th><th class="hide-narrow">Page</th><th class="num">Last seen</th></tr></thead>
-        <tbody id="screens"><tr><td colspan="6" class="empty">No screen has reported in yet. Open the TV page on a TV.</td></tr></tbody>
+        <thead><tr><th>Screen</th><th>Drive folder</th><th>Status</th><th>Ad list</th><th class="hide-narrow">Saved offline</th><th class="hide-narrow">Page</th><th class="num">Last seen</th></tr></thead>
+        <tbody id="screens"><tr><td colspan="7" class="empty">No screen has reported in yet. Open the TV page on a TV.</td></tr></tbody>
       </table>
     </div>
   </section>
@@ -201,6 +201,8 @@ function renderSetup(s) {
   if (!first) {
     $('#folder-name').textContent = s.source.folderName || s.source.folderId;
     $('#folder-readonly').hidden = s.source.canWrite !== false;
+    $('#share-with').hidden = !s.serviceAccountEmail;
+    $('#share-with').textContent = s.serviceAccountEmail ? `. Share a folder with ${s.serviceAccountEmail} to use it here.` : '';
   }
 }
 
@@ -276,7 +278,7 @@ function renderScreens(data) {
   if (!data.screens.length) {
     const tr = document.createElement('tr');
     tr.append(cell('No screen has reported in yet. Open the TV page on a TV.', 'empty'));
-    tr.firstChild.colSpan = 6;
+    tr.firstChild.colSpan = 7;
     rows.append(tr);
     return;
   }
@@ -291,11 +293,11 @@ function renderScreens(data) {
     list.className = `tag ${current ? 'good' : 'idle'}`;
     list.textContent = current ? 'Up to date' : s.revision ? 'Older list' : 'Unknown';
     const sc = cell(s.name || s.id.slice(0, 11), 'ad');
-    sc.title = `${s.id} (${s.kind === 'android' ? 'Android TV app' : 'browser'})${s.folder ? `, folder ${s.folder}` : ''}`;
+    sc.title = `${s.id} (${s.kind === 'android' ? 'Android TV app' : 'browser'})`;
     const sct = cell(''); sct.append(status);
     const lt = cell(''); lt.append(list);
     tr.append(
-      sc, sct, lt,
+      sc, cell(s.folder || 'Unknown', s.folder ? 'ad' : 'empty'), sct, lt,
       cell(`${s.adsSaved} of ${s.adsTotal} ads, ${size(s.cacheBytes)}${s.quotaBytes ? ` of about ${size(s.quotaBytes)}` : ''}`, 'hide-narrow'),
       cell(s.version || '', 'hide-narrow file'),
       cell(ago(s.ageSec), 'num'),

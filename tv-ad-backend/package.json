@@ -1,10 +1,12 @@
 {
   "name": "tv-ad-backend",
   "version": "0.1.0",
-  "description": "Builds ads.json and index.html from a public Google Drive folder for the TV ad display.",
+  "description": "Serves TV advertisements from a Google Drive folder: scans the folder, streams the media and keeps the TV page in sync.",
   "type": "module",
   "private": true,
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "start": "node --env-file=.env src/server.js",
     "scan": "node --env-file=.env scripts/scan-once.js",
@@ -12,5 +14,8 @@
     "doctor": "node --env-file=.env scripts/doctor.js",
     "test": "node --test \"test/*.test.js\"",
     "test:browser": "node --test --test-concurrency=1 \"test/browser/*.e2e.mjs\""
+  },
+  "dependencies": {
+    "pg": "^8.23.1"
   }
 }
