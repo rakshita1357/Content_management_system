@@ -45,7 +45,9 @@ export function createPublicReader({ apiKey, urls, google }, tokens = null, fetc
     const res = await gfetch(`${urls.driveApi}/files/${encodeURIComponent(folderId)}?${params}`, { headers });
     if (res.status === 404 || res.status === 403) {
       throw new AppError(404, 'Google Drive cannot open this folder with the account the backend uses.',
-        useOAuth
+        tokens?.serviceAccountEmail
+          ? `Share the folder with ${tokens.serviceAccountEmail} (Viewer is enough), then try again.`
+          : useOAuth
           ? 'Check the link, and make sure the folder is yours or shared with the Google account you signed in with (npm run auth).'
           : 'Check the link. Without OAuth the folder must be shared as "Anyone with the link: Viewer".');
     }

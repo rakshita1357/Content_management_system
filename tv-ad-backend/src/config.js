@@ -38,10 +38,30 @@ function tlsFrom(env) {
   return { certFile, keyFile };
 }
 
+// The service account key file, pasted whole (JSON) or as base64 of that JSON. Returns null when not set.
+function serviceAccountFrom(raw) {
+  const text = String(raw || '').trim();
+  if (!text) return null;
+  let key;
+  try {
+    key = JSON.parse(text.startsWith('{') ? text : Buffer.from(text, 'base64').toString('utf8'));
+  } catch {
+    throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON must be the contents of the service account key file (JSON), or that JSON as base64.');
+  }
+  if (!key || typeof key.client_email !== 'string' || typeof key.private_key !== 'string' || !key.private_key.includes('PRIVATE KEY')) {
+    throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON is missing client_email or private_key. Download the JSON key again from Google Cloud (Service accounts > Keys).');
+  }
+  return { email: key.client_email, privateKey: key.private_key.replace(/\\n/g, '\n') };
+}
+
 export function loadConfig(env = process.env) {
   const hasOAuth = Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GOOGLE_REFRESH_TOKEN);
-  if (!hasOAuth && !env.DRIVE_API_KEY) {
-    throw new Error('Set up Google access in .env: either the OAuth values (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN; run "npm run auth") or, for a public folder only, DRIVE_API_KEY.');
+  const serviceAccount = serviceAccountFrom(env.GOOGLE_SERVICE_ACCOUNT_JSON);
+  if (!hasOAuth && !serviceAccount && !env.DRIVE_API_KEY) {
+    throw new Error('Set up Google access in .env: a service account (GOOGLE_SERVICE_ACCOUNT_JSON), or the OAuth values (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN; run "npm run auth"), or, for a public folder only, DRIVE_API_KEY.');
+  }
+  if (env.DATABASE_URL && !/^postgres(ql)?:\/\//i.test(env.DATABASE_URL)) {
+    throw new Error('DATABASE_URL must start with postgresql:// (copy the connection string from your Neon dashboard).');
   }
   if (env.DRIVE_FOLDER_ID && !ID_PATTERN.test(env.DRIVE_FOLDER_ID)) {
     throw new Error('DRIVE_FOLDER_ID looks wrong. Use only the ID part of the folder URL, not the whole link.');
@@ -56,6 +76,10 @@ export function loadConfig(env = process.env) {
     // Optional: the folder can also be chosen in the admin page, which then takes priority.
     rootFolderId: env.DRIVE_FOLDER_ID || '',
     apiKey: env.DRIVE_API_KEY || '',
+    // Optional database (for example Neon). When set, the saved folder, ad list and screens live there instead of in DATA_DIR,
+    // so they survive restarts on hosts with a temporary disk.
+    databaseUrl: env.DATABASE_URL || '',
+    serviceAccount,
     oauth: {
       clientId: env.GOOGLE_CLIENT_ID || '',
       clientSecret: env.GOOGLE_CLIENT_SECRET || '',

@@ -3,6 +3,7 @@ import { loadConfig } from '../src/config.js';
 import { createPublicReader } from '../src/drive/publicReader.js';
 import { createTokenProvider } from '../src/drive/oauth.js';
 import { createStateStore } from '../src/lib/stateStore.js';
+import { createPgStore } from '../src/lib/pgStore.js';
 import { runDoctor } from '../src/lib/doctor.js';
 
 let config;
@@ -13,7 +14,16 @@ try {
   process.exit(1);
 }
 const tokens = createTokenProvider(config);
-const results = await runDoctor({ config, tokens, reader: createPublicReader(config, tokens), store: createStateStore(config.dataDir) });
+let store;
+try {
+  store = config.databaseUrl ? await createPgStore(config.databaseUrl) : createStateStore(config.dataDir);
+  await store.init({ attempts: 1 });
+} catch (err) {
+  console.log(`✗ Database: ${err.message}${err.hint ? ` ${err.hint}` : ''}`);
+  process.exitCode = 1;
+  store = null;
+}
+const results = await runDoctor({ config, tokens, reader: createPublicReader(config, tokens), store });
 const mark = { ok: '✓', warn: '!', fail: '✗' };
 for (const r of results) {
   console.log(`${mark[r.level]} ${r.name}: ${r.detail}`);

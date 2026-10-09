@@ -1,7 +1,8 @@
 # Build from the repository root:  docker build -f deploy/Dockerfile -t tvads .
 FROM node:22-alpine
 WORKDIR /app
-COPY tv-ad-backend/package.json tv-ad-backend/package.json
+COPY tv-ad-backend/package.json tv-ad-backend/package-lock.json tv-ad-backend/
+RUN cd tv-ad-backend && npm ci --omit=dev
 COPY tv-ad-backend/src tv-ad-backend/src
 COPY tv-ad-backend/public tv-ad-backend/public
 COPY tv-ad-backend/scripts tv-ad-backend/scripts

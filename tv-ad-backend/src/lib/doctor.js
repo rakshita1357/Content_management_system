@@ -22,7 +22,9 @@ export async function runDoctor({ config, tokens, reader, store, nodeVersion = p
   if (!missing.length) add('TV page files', 'ok', `found in ${config.webCoreDir}`);
   else add('TV page files', 'fail', `missing ${missing.join(', ')} in ${config.webCoreDir}`, 'Keep the web-core folder next to tv-ad-backend, or set WEB_CORE_DIR to its location.');
 
-  try {
+  if (config.databaseUrl) {
+    add('Saved data', store ? 'ok' : 'fail', store ? 'stored in the database (DATABASE_URL), so it survives restarts' : 'the database cannot be reached', store ? null : 'Check DATABASE_URL.');
+  } else try {
     fs.mkdirSync(config.dataDir, { recursive: true });
     const probe = path.join(config.dataDir, `.write-test-${process.pid}`);
     fs.writeFileSync(probe, 'ok');
@@ -41,7 +43,7 @@ export async function runDoctor({ config, tokens, reader, store, nodeVersion = p
     try {
       await tokens.getAccessToken();
       googleOk = true;
-      add('Google sign-in', 'ok', 'the saved login works');
+      add('Google sign-in', 'ok', tokens.serviceAccountEmail ? `service account ${tokens.serviceAccountEmail} works; customers share their folder with this address` : 'the saved login works');
     } catch (err) {
       add('Google sign-in', 'fail', err.message, err.hint || 'Run "npm run auth" again.');
     }
@@ -52,7 +54,7 @@ export async function runDoctor({ config, tokens, reader, store, nodeVersion = p
     add('Google sign-in', 'fail', 'neither OAuth nor an API key is set', 'See the README, steps 2 to 4.');
   }
 
-  const saved = (await store.load()).source;
+  const saved = store ? (await store.load()).source : null;
   const folderId = saved?.folderId || config.rootFolderId;
   if (!folderId) {
     add('Drive folder', 'warn', 'no folder chosen yet', 'Open the backend front page and paste a Drive folder link.');

@@ -7,7 +7,7 @@ services:
     # "starter" or higher, because it needs a disk (below) and must not go to sleep. The free plan sleeps and forgets its
     # data/ folder (set DRIVE_FOLDER_ID so a restarted free service reconnects to your folder by itself).
     plan: starter
-    buildCommand: echo "nothing to build"
+    buildCommand: cd tv-ad-backend && npm ci --omit=dev
     startCommand: node tv-ad-backend/src/server.js
     healthCheckPath: /healthz
     autoDeploy: false
@@ -31,6 +31,12 @@ services:
       - key: GOOGLE_REFRESH_TOKEN
         sync: false
       - key: DRIVE_FOLDER_ID
+        sync: false
+      # Optional: keep the chosen folder, ad list and screens in a database (for example free Neon) instead of the disk.
+      - key: DATABASE_URL
+        sync: false
+      # Optional: a service account key instead of the OAuth values above (it never expires).
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON
         sync: false
     disk:
       name: tvads-data

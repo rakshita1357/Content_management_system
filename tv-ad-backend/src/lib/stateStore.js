@@ -14,6 +14,7 @@ async function writeAtomic(file, text) {
 export function createStateStore(dataDir, log = null) {
   const stateFile = path.join(dataDir, 'state.json');
   const manifestFile = path.join(dataDir, 'manifest.json');
+  const screensFile = path.join(dataDir, 'screens.json');
   const readJson = async (file) => {
     let raw;
     try {
@@ -32,6 +33,8 @@ export function createStateStore(dataDir, log = null) {
     }
   };
   return {
+    kind: 'files',
+    init: async () => {},
     async load() {
       return (await readJson(stateFile)) || {};
     },
@@ -43,5 +46,8 @@ export function createStateStore(dataDir, log = null) {
       if (!manifest) return rm(manifestFile, { force: true });
       return writeAtomic(manifestFile, JSON.stringify(manifest));
     },
+    loadScreens: async () => (await readJson(screensFile)) || [],
+    saveScreens: (rows) => writeAtomic(screensFile, JSON.stringify(rows)),
+    close: async () => {},
   };
 }

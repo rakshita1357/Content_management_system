@@ -10,6 +10,7 @@ import { createLogger } from './lib/logger.js';
 import { whoUsesPort, portInUseMessage } from './lib/portProbe.js';
 import { chooseHost, isWeakPassword } from './lib/security.js';
 import { createStateStore } from './lib/stateStore.js';
+import { createPgStore } from './lib/pgStore.js';
 import { appVersion } from './lib/version.js';
 import { createScreensService } from './services/screensService.js';
 import { createSyncService } from './services/syncService.js';
@@ -37,7 +38,15 @@ process.on('unhandledRejection', (err) => {
   process.exit(1);
 });
 
-const store = createStateStore(config.dataDir, log);
+let store;
+try {
+  store = config.databaseUrl ? await createPgStore(config.databaseUrl, log) : createStateStore(config.dataDir, log);
+  await store.init();
+} catch (err) {
+  log.error(`Cannot start: ${err.message}${err.hint ? ` ${err.hint}` : ''}`);
+  process.exitCode = 1;
+  process.exit(1);
+}
 const tokens = createTokenProvider(config);
 const reader = createPublicReader(config, tokens);
 const writer = tokens.isConfigured() ? createDriveWriter(config, tokens) : null;
@@ -45,12 +54,9 @@ const sync = createSyncService({ config, reader, writer, store, log });
 const uploads = createUploadService({ config, writer, sync });
 const sources = createSourceService({ reader, sync });
 
-// Which screens have reported in is remembered across restarts (a small file, written at most every 30 s).
-const screensFile = path.join(config.dataDir, 'screens.json');
-const screens = createScreensService({
-  persist: (rows) => fs.promises.mkdir(config.dataDir, { recursive: true }).then(() => fs.promises.writeFile(`${screensFile}.tmp`, JSON.stringify(rows)).then(() => fs.promises.rename(`${screensFile}.tmp`, screensFile))),
-});
-try { screens.load(JSON.parse(fs.readFileSync(screensFile, 'utf8'))); } catch { /* none yet */ }
+// Which screens have reported in is remembered across restarts (written at most every 30 s).
+const screens = createScreensService({ persist: (rows) => store.saveScreens(rows) });
+screens.load(await store.loadScreens().catch(() => []));
 
 await sync.init();
 
